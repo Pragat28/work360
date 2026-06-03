@@ -1,40 +1,41 @@
 const express = require('express');
-const mongoose = require('mongoose');
 const cors = require('cors');
+const connectDB = require('./config/db');
 require('dotenv').config();
 
 const app = express();
 
+// Middleware
 app.use(express.json());
 app.use(cors());
 
+// Connect to MongoDB
+connectDB();
+
 // Routes
 const authRoutes = require('./routes/authRoutes');
+const submissionRoutes = require('./routes/submissionRoutes');
+
 app.use('/api/auth', authRoutes);
+app.use('/api/submissions', submissionRoutes);
 
 // Test route
 app.get('/', (req, res) => {
   res.send('WorkFlow360 backend is running!');
 });
 
-// MongoDB connection
-mongoose.connect(process.env.MONGO_URI)
-  .then(() => {
-    console.log('✅ MongoDB connected successfully');
-    app.listen(process.env.PORT || 5000, () => {
-      console.log(`✅ Server running on port ${process.env.PORT || 5000}`);
-    });
-  })
-  .catch((err) => {
-    console.log('❌ MongoDB connection failed');
-    console.log('📌 Reason:', err.message);
-  });
-
-// Global error handler — catches any unhandled errors
+// Global error handler
 app.use((err, req, res, next) => {
-  console.log('❌ Unexpected error:', err.message);
+  console.error('❌ Unexpected error:', err);
+
   res.status(500).json({
     message: 'Internal server error',
-    error: err.message        // exact problem will show here
+    error: err.message
   });
+});
+
+const PORT = process.env.PORT || 5000;
+
+app.listen(PORT, () => {
+  console.log(`✅ Server running on port ${PORT}`);
 });
