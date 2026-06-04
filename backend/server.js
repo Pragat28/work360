@@ -15,9 +15,17 @@ connectDB();
 // Routes
 const authRoutes = require('./routes/authRoutes');
 const submissionRoutes = require('./routes/submissionRoutes');
+const adminRoutes = require('./routes/adminRoutes');
+app.use('/api/admin', adminRoutes);
 
 app.use('/api/auth', authRoutes);
 app.use('/api/submissions', submissionRoutes);
+
+app.use("/api/projects", require("./routes/projectRoutes"));
+app.use("/api/subtasks", require("./routes/subtaskRoutes"));
+app.use("/api/comments", require("./routes/commentRoutes"));
+app.use("/api/timeline", require("./routes/timelineRoutes"));
+app.use("/api/notifications", require("./routes/notificationRoutes"));
 
 // Test route
 app.get('/', (req, res) => {

@@ -109,3 +109,7 @@ code {
   padding: 4px 8px;
   background: var(--code-bg);
 }
+input, select, textarea {
+  background-color: #ffffff !important;
+  color: #111827 !important;
+}

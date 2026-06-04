@@ -16,8 +16,32 @@ const userSchema = new mongoose.Schema({
   },
   role: {
     type: String,
-    enum: ['employee', 'manager', 'hr_admin'],
-    default: 'employee'
+    enum: ['employee', 'manager', 'hr_admin', 'pending'],
+    default: 'pending'
+  },
+  isVerified: {
+    type: Boolean,
+    default: false
+  },
+  verificationToken: {
+    type: String
+  },
+  resetPasswordToken: {
+    type: String
+  },
+  resetPasswordExpire: {
+    type: Date
+  },
+  failedLoginAttempts: {
+    type: Number,
+    default: 0
+  },
+  lockUntil: {
+    type: Date
+  },
+  department: {
+    type: String,
+    default: ''
   }
 }, { timestamps: true });
 

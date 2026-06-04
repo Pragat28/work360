@@ -1,5 +1,5 @@
 # Logs
-logs
+logs/
 *.log
 npm-debug.log*
 yarn-debug.log*
@@ -7,18 +7,87 @@ yarn-error.log*
 pnpm-debug.log*
 lerna-debug.log*
 
-node_modules
-dist
-dist-ssr
+# Dependencies
+node_modules/
+**/node_modules/
+
+# Build outputs
+dist/
+dist-ssr/
+build/
+coverage/
+
+# Environment variables
+.env
+.env.*
+!.env.example
+
+# Local config
 *.local
 
-# Editor directories and files
+# Cache
+.cache/
+.parcel-cache/
+.eslintcache
+
+# Vite
+.vite/
+
+# Runtime files
+pids
+*.pid
+*.seed
+*.pid.lock
+
+# Temporary files
+tmp/
+temp/
+
+# Uploads (if applicable)
+uploads/
+
+# OS files
+.DS_Store
+Thumbs.db
+
+# VS Code
 .vscode/*
 !.vscode/extensions.json
-.idea
-.DS_Store
+
+# JetBrains IDEs
+.idea/
+
+# Visual Studio
 *.suo
 *.ntvs*
 *.njsproj
 *.sln
+
+# Swap files
 *.sw?
+*.swp
+*.swo
+
+# Testing
+.nyc_output/
+
+# Package managers
+.pnp
+.pnp.js
+
+# MongoDB
+data/db/
+
+# Render / Vercel
+.vercel/
+.render/
+
+# Frontend build artifacts
+frontend/dist/
+frontend/build/
+
+# Backend logs
+backend/logs/
+
+# Misc
+*.tgz
