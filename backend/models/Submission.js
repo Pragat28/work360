@@ -1,55 +1,56 @@
-const mongoose = require('mongoose');
+const mongoose = require("mongoose");
 
-const submissionSchema = new mongoose.Schema({
-  task: {
-    type: mongoose.Schema.Types.ObjectId,
-    ref: 'Task',
-    required: true
-  },
-  employee: {
-    type: mongoose.Schema.Types.ObjectId,
-    ref: 'User',
-    required: true
-  },
-  versionNumber: {
-    type: Number,
-    default: 1
-  },
-  fileUrls: [String],
-  description: {
-    type: String,
-    default: ''
-  },
-  status: {
-    type: String,
-    enum: ['draft', 'submitted', 'accepted', 'rejected', 'changes_requested'],
-    default: 'draft'
-  },
-  managerRemark: {
-    type: String,
-    default: ''
-  },
+const subtaskSubmissionSchema = new mongoose.Schema(
+  {
+    subtask: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: "Subtask",
+      required: true,
+    },
 
-  // ADD 1: know who reviewed it and when
-  reviewedBy: {
-    type: mongoose.Schema.Types.ObjectId,
-    ref: 'User',
-    default: null
+    project: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: "Project",
+      required: true,
+    },
+
+    submittedBy: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: "User",
+      required: true,
+    },
+
+    note: {
+      type: String,
+      default: "",
+      trim: true,
+    },
+
+    files: [
+      {
+        originalName: { type: String, required: true },
+        cloudinaryUrl: { type: String, required: true },
+        cloudinaryPublicId: { type: String, required: true },
+        fileType: { type: String, required: true },
+        fileSize: { type: Number, required: true },
+        uploadedAt: { type: Date, default: Date.now },
+      },
+    ],
+
+    isDeleted: {
+      type: Boolean,
+      default: false,
+    },
+
+    deletedAt: {
+      type: Date,
+      default: null,
+    },
   },
-  reviewedAt: {
-    type: Date,
-    default: null
-  }
+  { timestamps: true }
+);
 
-}, { timestamps: true });
+subtaskSubmissionSchema.index({ subtask: 1, isDeleted: 1 });
+subtaskSubmissionSchema.index({ submittedBy: 1, isDeleted: 1 });
 
-// ADD 2: auto-increment versionNumber per task before saving
-submissionSchema.pre('save', async function (next) {
-  if (this.isNew) {
-    const count = await mongoose.model('Submission').countDocuments({ task: this.task });
-    this.versionNumber = count + 1;
-  }
-  next();
-});
-
-module.exports = mongoose.model('Submission', submissionSchema);
+module.exports = mongoose.model("SubtaskSubmission", subtaskSubmissionSchema);
