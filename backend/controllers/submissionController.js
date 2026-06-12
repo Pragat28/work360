@@ -1,110 +1,184 @@
-const Submission = require('../models/Submission');
+const SubtaskSubmission = require("../models/SubtaskSubmission");
+const Subtask = require("../models/Subtask");
+const Project = require("../models/Project");
+const User = require("../models/User");
+const { cloudinary } = require("../config/cloudinary");
+const { createNotification, createTimelineEvent } = require("../utils/notifications");
 
-// Employee creates a new submission (like Google Classroom "Add work")
-const createSubmission = async (req, res) => {
+// ─── Helper: fetch full user from decoded JWT ─────────────────────────────────
+const getFullUser = async (decoded) => {
+  return User.findById(decoded.id).select("-password");
+};
+
+// =============================================================================
+// @desc    Employee submits work for a subtask (upload files + note)
+// @route   POST /api/subtasks/:id/submissions
+// @access  Employee (must be assigned to the subtask)
+// =============================================================================
+
+exports.createSubmission = async (req, res) => {
   try {
-    const { taskId, description, fileUrls } = req.body;
+    const currentUser = await getFullUser(req.user);
+    if (!currentUser) return res.status(401).json({ message: "User not found" });
 
-    // Find if any previous submissions exist for this task by this employee
-    const previousSubmissions = await Submission.find({
-      task: taskId,
-      employee: req.user.id
+    const subtask = await Subtask.findOne({
+      _id: req.params.id,
+      isDeleted: false,
+    });
+    if (!subtask) {
+      return res.status(404).json({ message: "Subtask not found" });
+    }
+
+    // Verify employee is assigned to this subtask
+    const isAssigned = subtask.assignedTo.some(
+      (id) => id.toString() === currentUser._id.toString()
+    );
+    if (!isAssigned) {
+      return res.status(403).json({ message: "You are not assigned to this subtask" });
+    }
+
+    const project = await Project.findOne({
+      _id: subtask.project,
+      isDeleted: false,
+    });
+    if (!project) {
+      return res.status(404).json({ message: "Project not found" });
+    }
+
+    // Build files array from Cloudinary upload results (via multer middleware)
+    const files = (req.files || []).map((file) => ({
+      originalName: file.originalname,
+      cloudinaryUrl: file.path,
+      cloudinaryPublicId: file.filename,
+      fileType: file.mimetype,
+      fileSize: file.size,
+    }));
+
+    if (!files.length && !req.body.note) {
+      return res.status(400).json({ message: "Please provide at least a file or a note" });
+    }
+
+    const submission = await SubtaskSubmission.create({
+      subtask: subtask._id,
+      project: project._id,
+      submittedBy: currentUser._id,
+      note: req.body.note || "",
+      files,
     });
 
-    // Version number = how many submissions already exist + 1
-    const versionNumber = previousSubmissions.length + 1;
-
-    const submission = await Submission.create({
-      task: taskId,
-      employee: req.user.id,
-      versionNumber,
-      description,
-      fileUrls: fileUrls || [],
-      status: 'draft'
+    await createTimelineEvent({
+      project: project._id,
+      subtask: subtask._id,
+      actor: currentUser._id,
+      eventType: "subtask_submission",
+      description: `${currentUser.fullName} submitted work for subtask "${subtask.name}"`,
+      metadata: { fileCount: files.length, hasNote: !!req.body.note },
     });
 
-    res.status(201).json({
-      message: '✅ Submission created successfully',
-      submission
-    });
+    // Notify all assigned managers
+    const notifPromises = project.assignedManagers.map((managerId) =>
+      createNotification({
+        recipient: managerId,
+        project: project._id,
+        subtask: subtask._id,
+        eventType: "subtask_submission",
+        message: `${currentUser.fullName} submitted work for "${subtask.name}" in project "${project.title}".`,
+        metadata: {
+          employeeName: currentUser.fullName,
+          subtaskName: subtask.name,
+          fileCount: files.length,
+        },
+      })
+    );
+    await Promise.all(notifPromises);
 
-  } catch (error) {
-    res.status(500).json({
-      message: '❌ Failed to create submission',
-      error: error.message
-    });
+    const populated = await SubtaskSubmission.findById(submission._id)
+      .populate("submittedBy", "fullName email department");
+
+    return res.status(201).json({ message: "Work submitted successfully", submission: populated });
+  } catch (err) {
+    console.error("createSubmission error:", err);
+    return res.status(500).json({ message: "Server error", error: err.message });
   }
 };
 
-// Employee clicks "Mark as Done" — like Google Classroom
-const markAsDone = async (req, res) => {
+// =============================================================================
+// @desc    Get all submissions for a subtask
+// @route   GET /api/subtasks/:id/submissions
+// @access  Manager (own projects), HR Admin, Employee (own submissions only)
+// =============================================================================
+
+exports.getSubmissions = async (req, res) => {
   try {
-    const { submissionId } = req.params;
+    const currentUser = await getFullUser(req.user);
+    if (!currentUser) return res.status(401).json({ message: "User not found" });
 
-    const submission = await Submission.findById(submissionId);
+    const subtask = await Subtask.findOne({
+      _id: req.params.id,
+      isDeleted: false,
+    });
+    if (!subtask) {
+      return res.status(404).json({ message: "Subtask not found" });
+    }
 
+    const filter = { subtask: subtask._id, isDeleted: false };
+
+    // Employees can only see their own submissions
+    if (currentUser.role === "employee") {
+      filter.submittedBy = currentUser._id;
+    }
+
+    const submissions = await SubtaskSubmission.find(filter)
+      .populate("submittedBy", "fullName email department")
+      .sort({ createdAt: -1 });
+
+    return res.status(200).json({ submissions });
+  } catch (err) {
+    console.error("getSubmissions error:", err);
+    return res.status(500).json({ message: "Server error", error: err.message });
+  }
+};
+
+// =============================================================================
+// @desc    Delete a submission (soft delete, removes files from Cloudinary)
+// @route   DELETE /api/submissions/:id
+// @access  Employee (own submission only), HR Admin
+// =============================================================================
+
+exports.deleteSubmission = async (req, res) => {
+  try {
+    const currentUser = await getFullUser(req.user);
+    if (!currentUser) return res.status(401).json({ message: "User not found" });
+
+    const submission = await SubtaskSubmission.findOne({
+      _id: req.params.id,
+      isDeleted: false,
+    });
     if (!submission) {
-      return res.status(404).json({
-        message: '❌ Submission not found — check the submission ID'
-      });
+      return res.status(404).json({ message: "Submission not found" });
     }
 
-    // Only the employee who created it can mark it as done
-    if (submission.employee.toString() !== req.user.id) {
-      return res.status(403).json({
-        message: '❌ You are not allowed to mark this submission as done'
-      });
+    // Only the submitter or hr_admin can delete
+    if (
+      currentUser.role !== "hr_admin" &&
+      submission.submittedBy.toString() !== currentUser._id.toString()
+    ) {
+      return res.status(403).json({ message: "Not authorised to delete this submission" });
     }
 
-    // Already submitted check
-    if (submission.status === 'submitted') {
-      return res.status(400).json({
-        message: '❌ Already marked as done — waiting for manager review'
-      });
-    }
+    // Remove files from Cloudinary
+    const deletePromises = submission.files.map((file) =>
+      cloudinary.uploader.destroy(file.cloudinaryPublicId, { resource_type: "auto" })
+    );
+    await Promise.all(deletePromises);
 
-    submission.status = 'submitted';
+    submission.isDeleted = true;
+    submission.deletedAt = new Date();
     await submission.save();
 
-    res.status(200).json({
-      message: '✅ Marked as done — manager will be notified',
-      submission
-    });
-
-  } catch (error) {
-    res.status(500).json({
-      message: '❌ Failed to mark as done',
-      error: error.message
-    });
+    return res.status(200).json({ message: "Submission deleted" });
+  } catch (err) {
+    console.error("deleteSubmission error:", err);
+    return res.status(500).json({ message: "Server error", error: err.message });
   }
 };
-
-// Get all submissions for a task (manager sees all versions)
-const getSubmissionsByTask = async (req, res) => {
-  try {
-    const { taskId } = req.params;
-
-    const submissions = await Submission.find({ task: taskId })
-      .populate('employee', 'name email')
-      .sort({ versionNumber: 1 });
-
-    if (submissions.length === 0) {
-      return res.status(404).json({
-        message: '❌ No submissions found for this task'
-      });
-    }
-
-    res.status(200).json({
-      message: '✅ Submissions fetched successfully',
-      submissions
-    });
-
-  } catch (error) {
-    res.status(500).json({
-      message: '❌ Failed to fetch submissions',
-      error: error.message
-    });
-  }
-};
-
-module.exports = { createSubmission, markAsDone, getSubmissionsByTask };
