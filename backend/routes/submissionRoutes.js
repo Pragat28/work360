@@ -1,18 +1,39 @@
-const express = require('express');
-const router = express.Router();
-
-const auth = require('../middleware/Auth');
+const express = require("express");
+const router = express.Router({ mergeParams: true });
 
 const {
   createSubmission,
-  markAsDone,
-  getSubmissionsByTask
-} = require('../controllers/submissionController');
+  getSubmissions,
+  deleteSubmission,
+} = require("../controllers/submissionController");
 
-router.post('/create', auth, createSubmission);
+const { protect } = require("../middleware/Auth");
+const { checkRole } = require("../middleware/roleMiddleware");
+const { upload } = require("../config/cloudinary");
 
-router.patch('/mark-done/:submissionId', auth, markAsDone);
+// POST /api/subtasks/:id/submissions  — employee submits work
+router.post(
+  "/",
+  protect,
+  checkRole("employee"),
+  upload.array("files", 10),        // up to 10 files per submission
+  createSubmission
+);
 
-router.get('/task/:taskId', auth, getSubmissionsByTask);
+// GET /api/subtasks/:id/submissions  — manager/hr sees all, employee sees own
+router.get(
+  "/",
+  protect,
+  checkRole("employee", "manager", "hr_admin"),
+  getSubmissions
+);
+
+// DELETE /api/submissions/:id  — submitter or hr_admin deletes
+router.delete(
+  "/:id",
+  protect,
+  checkRole("employee", "hr_admin"),
+  deleteSubmission
+);
 
 module.exports = router;
