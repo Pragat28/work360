@@ -7,8 +7,8 @@ const {
   deleteSubmission,
 } = require("../controllers/submissionController");
 
-const { protect } = require("../middleware/Auth");
-const { checkRole } = require("../middleware/roleMiddleware");
+const  protect  = require("../middleware/Auth");
+const checkRole = require("../middleware/roleMiddleware");
 const { upload } = require("../config/cloudinary");
 
 // POST /api/subtasks/:id/submissions  — employee submits work
@@ -16,7 +16,7 @@ router.post(
   "/",
   protect,
   checkRole("employee"),
-  upload.array("files", 10),        // up to 10 files per submission
+  upload.array("files", 10),
   createSubmission
 );
 
