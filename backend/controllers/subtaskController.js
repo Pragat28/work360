@@ -243,6 +243,46 @@ exports.startSubtask = async (req, res) => {
 };
 
 // =============================================================================
+// @desc    Search users to assign to a subtask
+// @route   GET /api/subtasks/:id/search-users
+// @access  Manager (own projects), HR Admin
+// =============================================================================
+
+exports.searchAssignableUsers = async (req, res) => {
+  try {
+    const currentUser = await getFullUser(req.user);
+    if (!currentUser) return res.status(401).json({ message: "User not found" });
+
+    const subtask = await Subtask.findOne({ _id: req.params.id, isDeleted: false });
+    if (!subtask) return res.status(404).json({ message: "Subtask not found" });
+
+    const project = await getEditableProject(subtask.project, currentUser);
+    if (!project) return res.status(403).json({ message: "Not authorised" });
+
+    const { search, role } = req.query;
+
+    const filter = {
+      role: role || "employee",
+      _id: { $in: project.assignedEmployees }, // only employees on this project
+    };
+
+    if (search) {
+      filter.$or = [
+        { fullName: { $regex: search, $options: "i" } },
+        { email: { $regex: search, $options: "i" } },
+      ];
+    }
+
+    const users = await User.find(filter).select("fullName email department").limit(20);
+
+    return res.status(200).json({ users });
+  } catch (err) {
+    console.error("searchAssignableUsers error:", err);
+    return res.status(500).json({ message: "Server error", error: err.message });
+  }
+};
+
+// =============================================================================
 // @desc    Employee marks subtask as Completed
 // @route   PATCH /api/subtasks/:id/complete
 // @access  Employee only (must be assigned to the project)
