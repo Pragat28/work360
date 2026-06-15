@@ -7,6 +7,21 @@ const getFullUser = async (decoded) => {
   return User.findById(decoded.id).select("-password");
 };
 
+// ─── Helper: build a project filter scoped to the requesting user's role ──────
+const getScopedProjectIds = async (user) => {
+  const filter = { isDeleted: false };
+
+  if (user.role === "employee") {
+    filter.assignedEmployees = user._id;
+  } else if (user.role === "manager") {
+    filter.assignedManagers = user._id;
+  }
+  // hr_admin: no additional filter — sees all projects
+
+  const projects = await Project.find(filter).select("_id");
+  return projects.map((p) => p._id);
+};
+
 // =============================================================================
 // @desc    Get all timeline events for a specific project
 // @route   GET /api/projects/:id/timeline
@@ -43,9 +58,12 @@ exports.getProjectTimeline = async (req, res) => {
 };
 
 // =============================================================================
-// @desc    Get all timeline events across all projects
+// @desc    Get timeline events scoped to the requesting user's projects
+//          — Employees  : only their assigned projects
+//          — Managers   : only their assigned projects
+//          — HR Admins  : all projects (global view)
 // @route   GET /api/timeline
-// @access  HR Admin only
+// @access  All roles
 // =============================================================================
 
 exports.getGlobalTimeline = async (req, res) => {
@@ -55,9 +73,32 @@ exports.getGlobalTimeline = async (req, res) => {
 
     const { eventType, projectId, limit = 50, page = 1 } = req.query;
 
-    const filter = {};
+    // ── Resolve the project IDs this user is allowed to see ──────────────────
+    const allowedProjectIds = await getScopedProjectIds(currentUser);
+
+    if (allowedProjectIds.length === 0) {
+      return res.status(200).json({
+        events: [],
+        pagination: { total: 0, page: parseInt(page), pages: 0 },
+      });
+    }
+
+    // ── Build filter ──────────────────────────────────────────────────────────
+    const filter = { project: { $in: allowedProjectIds } };
+
     if (eventType) filter.eventType = eventType;
-    if (projectId) filter.project = projectId;
+
+    // If a specific projectId is requested, honour it only if it's within scope
+    if (projectId) {
+      const isAllowed = allowedProjectIds
+        .map((id) => id.toString())
+        .includes(projectId);
+
+      if (!isAllowed) {
+        return res.status(403).json({ message: "Access to this project is not allowed" });
+      }
+      filter.project = projectId;
+    }
 
     const skip = (parseInt(page) - 1) * parseInt(limit);
 
