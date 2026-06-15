@@ -1,4 +1,4 @@
-const SubtaskSubmission = require("../models/SubtaskSubmission");
+const SubtaskSubmission = require("../models/Submission");
 const Subtask = require("../models/Subtask");
 const Project = require("../models/Project");
 const User = require("../models/User");
