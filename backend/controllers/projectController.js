@@ -122,13 +122,23 @@ exports.createProject = async (req, res) => {
       }
     }
 
+    // Ensure the creating manager is always included in assignedManagers
+    const managerIds = assignedManagers ? [...assignedManagers] : [];
+    const creatorId = currentUser._id.toString();
+    if (
+      currentUser.role === "manager" &&
+      !managerIds.some((id) => id.toString() === creatorId)
+    ) {
+      managerIds.push(currentUser._id);
+    }
+
     const project = await Project.create({
       title,
       description: description || "",
       startDate,
       endDate,
       assignedEmployees: assignedEmployees || [],
-      assignedManagers: assignedManagers || [],
+      assignedManagers: managerIds,
       createdBy: currentUser._id,
       notificationDays: notificationDays || 4,
     });
@@ -245,7 +255,11 @@ exports.getProject = async (req, res) => {
     if (currentUser.role === "employee") {
       filter.assignedEmployees = currentUser._id;
     } else if (currentUser.role === "manager") {
-      filter.assignedManagers = currentUser._id;
+      // Allow access if assigned as manager OR if they created the project
+      filter.$or = [
+        { assignedManagers: currentUser._id },
+        { createdBy: currentUser._id },
+      ];
     }
 
     const project = await Project.findOne(filter)
