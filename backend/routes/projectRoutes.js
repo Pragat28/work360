@@ -1,6 +1,7 @@
 const express = require("express");
 const router = express.Router();
 const auth = require("../middleware/auth");
+const checkRole = require("../middleware/roleMiddleware");
 
 const {
   createProject,
@@ -8,6 +9,7 @@ const {
   getProject,
   editProject,
   deleteProject,
+  searchUsers
 } = require("../controllers/projectController");
 
 const {
@@ -28,6 +30,7 @@ const {
 // ── Project CRUD ──────────────────────────────────────────────────────────────
 router.post("/", auth, createProject);
 router.get("/", auth, getProjects);
+router.get("/search-users", auth, checkRole("manager", "hr_admin"), searchUsers);
 router.get("/:id", auth, getProject);
 router.patch("/:id", auth, editProject);
 router.delete("/:id", auth, deleteProject);
