@@ -36,6 +36,15 @@ const subtaskSchema = new mongoose.Schema(
       default: "pending",
     },
 
+    // ── Assignment ─────────────────────────────────────────────────────────────
+    assignedTo: [
+      {
+        type: mongoose.Schema.Types.ObjectId,
+        ref: "User",
+      },
+    ],
+
+    // ── Progress tracking ──────────────────────────────────────────────────────
     startedAt: {
       type: Date,
       default: null,
@@ -46,10 +55,9 @@ const subtaskSchema = new mongoose.Schema(
       default: null,
     },
 
-    completedBy: {
-      type: mongoose.Schema.Types.ObjectId,
-      ref: "User",
-      default: null,
+    isCompleted: {
+      type: Boolean,
+      default: false,
     },
 
     order: {
