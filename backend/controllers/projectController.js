@@ -67,6 +67,60 @@ const getRatingMap = async (projectIds) => {
 };
 
 // =============================================================================
+// @desc    Search users by name / email / department (for assignment pickers)
+// @route   GET /api/projects/search-users?role=employee&q=John
+// @access  Manager (employee search only), HR Admin (all roles)
+// =============================================================================
+
+exports.searchUsers = async (req, res) => {
+  try {
+    const currentUser = await getFullUser(req.user);
+    if (!currentUser) return res.status(401).json({ message: "User not found" });
+
+    const { q = "", role } = req.query;
+
+    // Managers may only search for employees
+    if (currentUser.role === "manager" && role && role !== "employee") {
+      return res.status(403).json({ message: "Managers can only search for employees" });
+    }
+
+    // Build role filter
+    let roleFilter;
+    if (currentUser.role === "manager") {
+      roleFilter = "employee";
+    } else {
+      roleFilter = role && ["employee", "manager"].includes(role) ? role : null;
+    }
+
+    const filter = {};
+
+    if (roleFilter) {
+      filter.role = roleFilter;
+    } else {
+      filter.role = { $in: ["employee", "manager"] };
+    }
+
+    if (q.trim()) {
+      filter.$or = [
+        { name: { $regex: q.trim(), $options: "i" } },
+        { email: { $regex: q.trim(), $options: "i" } },
+        { department: { $regex: q.trim(), $options: "i" } },
+      ];
+    }
+
+    const users = await User.find(filter)
+      .select("_id name email role department")
+      .limit(20)
+      .sort({ name: 1 });
+
+    return res.status(200).json({ users });
+  } catch (err) {
+    console.error("searchUsers error:", err);
+    return res.status(500).json({ message: "Server error", error: err.message });
+  }
+};
+
+// =============================================================================
 // @desc    Create a new project
 // @route   POST /api/projects
 // @access  Manager, HR Admin
@@ -100,7 +154,6 @@ exports.createProject = async (req, res) => {
       const employees = await User.find({
         _id: { $in: assignedEmployees },
         role: "employee",
-        isActive: true,
       });
       if (employees.length !== assignedEmployees.length) {
         return res.status(400).json({
@@ -109,27 +162,28 @@ exports.createProject = async (req, res) => {
       }
     }
 
-    if (assignedManagers?.length) {
-      const managers = await User.find({
-        _id: { $in: assignedManagers },
-        role: { $in: ["manager", "hr_admin"] },
-        isActive: true,
-      });
-      if (managers.length !== assignedManagers.length) {
-        return res.status(400).json({
-          message: "One or more assigned managers are invalid or inactive",
+    let managerIds = [];
+
+    if (currentUser.role === "manager") {
+      if (assignedManagers?.length) {
+        return res.status(403).json({
+          message: "Managers cannot assign other managers to a project",
         });
       }
-    }
-
-    // Ensure the creating manager is always included in assignedManagers
-    const managerIds = assignedManagers ? [...assignedManagers] : [];
-    const creatorId = currentUser._id.toString();
-    if (
-      currentUser.role === "manager" &&
-      !managerIds.some((id) => id.toString() === creatorId)
-    ) {
-      managerIds.push(currentUser._id);
+      managerIds = [currentUser._id];
+    } else {
+      if (assignedManagers?.length) {
+        const managers = await User.find({
+          _id: { $in: assignedManagers },
+          role: { $in: ["manager", "hr_admin"] },
+        });
+        if (managers.length !== assignedManagers.length) {
+          return res.status(400).json({
+            message: "One or more assigned managers are invalid or inactive",
+          });
+        }
+        managerIds = [...assignedManagers];
+      }
     }
 
     const project = await Project.create({
@@ -255,7 +309,6 @@ exports.getProject = async (req, res) => {
     if (currentUser.role === "employee") {
       filter.assignedEmployees = currentUser._id;
     } else if (currentUser.role === "manager") {
-      // Allow access if assigned as manager OR if they created the project
       filter.$or = [
         { assignedManagers: currentUser._id },
         { createdBy: currentUser._id },
@@ -355,6 +408,45 @@ exports.editProject = async (req, res) => {
       if (new Date(req.body.endDate) <= new Date(req.body.startDate)) {
         return res.status(400).json({ message: "endDate must be after startDate" });
       }
+    }
+
+    if (req.body.assignedEmployees !== undefined) {
+      const employees = await User.find({
+        _id: { $in: req.body.assignedEmployees },
+        role: "employee",
+      });
+      if (employees.length !== req.body.assignedEmployees.length) {
+        return res.status(400).json({
+          message: "One or more assigned employees are invalid or inactive",
+        });
+      }
+      changes.assignedEmployees = {
+        from: project.assignedEmployees,
+        to: req.body.assignedEmployees,
+      };
+      project.assignedEmployees = req.body.assignedEmployees;
+    }
+
+    if (req.body.assignedManagers !== undefined) {
+      if (currentUser.role === "manager") {
+        return res.status(403).json({
+          message: "Managers cannot change manager assignments",
+        });
+      }
+      const managers = await User.find({
+        _id: { $in: req.body.assignedManagers },
+        role: { $in: ["manager", "hr_admin"] },
+      });
+      if (managers.length !== req.body.assignedManagers.length) {
+        return res.status(400).json({
+          message: "One or more assigned managers are invalid or inactive",
+        });
+      }
+      changes.assignedManagers = {
+        from: project.assignedManagers,
+        to: req.body.assignedManagers,
+      };
+      project.assignedManagers = req.body.assignedManagers;
     }
 
     await project.save();
