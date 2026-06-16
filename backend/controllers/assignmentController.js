@@ -42,7 +42,6 @@ exports.addEmployees = async (req, res) => {
     const employees = await User.find({
       _id: { $in: employeeIds },
       role: "employee",
-      isActive: true,
     });
 
     if (employees.length !== employeeIds.length) {
@@ -51,7 +50,7 @@ exports.addEmployees = async (req, res) => {
       });
     }
 
-    // Filter out employees already assigned (avoid duplicates)
+    // Filter out employees already assigned
     const alreadyAssigned = project.assignedEmployees.map((id) => id.toString());
     const newEmployees = employees.filter(
       (emp) => !alreadyAssigned.includes(emp._id.toString())
@@ -64,7 +63,7 @@ exports.addEmployees = async (req, res) => {
     project.assignedEmployees.push(...newEmployees.map((e) => e._id));
     await project.save();
 
-    // Notify each newly added employee + write timeline event per employee
+    // Notify each newly added employee + write timeline event
     const promises = newEmployees.map((emp) =>
       Promise.all([
         createNotification({
@@ -78,8 +77,9 @@ exports.addEmployees = async (req, res) => {
           project: project._id,
           actor: currentUser._id,
           eventType: "employee_added",
-          description: `${currentUser.fullName} added ${emp.fullName} to project "${project.title}"`,
-          metadata: { employeeId: emp._id, employeeName: emp.fullName },
+          // Use .name to match User schema
+          description: `${currentUser.name} added ${emp.name} to project "${project.title}"`,
+          metadata: { employeeId: emp._id, employeeName: emp.name },
         }),
       ])
     );
@@ -87,7 +87,7 @@ exports.addEmployees = async (req, res) => {
 
     const populated = await Project.findById(project._id).populate(
       "assignedEmployees",
-      "fullName email department"
+      "name email department"
     );
 
     return res.status(200).json({
@@ -130,15 +130,25 @@ exports.removeEmployee = async (req, res) => {
     );
     await project.save();
 
-    const employee = await User.findById(employeeId).select("fullName");
+    const employee = await User.findById(employeeId).select("name");
 
-    await createTimelineEvent({
-      project: project._id,
-      actor: currentUser._id,
-      eventType: "employee_removed",
-      description: `${currentUser.fullName} removed ${employee?.fullName || "an employee"} from project "${project.title}"`,
-      metadata: { employeeId },
-    });
+    await Promise.all([
+      // Notify the removed employee
+      createNotification({
+        recipient: employeeId,
+        project: project._id,
+        eventType: "employee_removed",
+        message: `You have been removed from project "${project.title}".`,
+        metadata: { projectId: project._id },
+      }),
+      createTimelineEvent({
+        project: project._id,
+        actor: currentUser._id,
+        eventType: "employee_removed",
+        description: `${currentUser.name} removed ${employee?.name || "an employee"} from project "${project.title}"`,
+        metadata: { employeeId },
+      }),
+    ]);
 
     return res.status(200).json({ message: "Employee removed from project" });
   } catch (err) {
@@ -158,6 +168,11 @@ exports.addManagers = async (req, res) => {
     const currentUser = await getFullUser(req.user);
     if (!currentUser) return res.status(401).json({ message: "User not found" });
 
+    // Belt-and-suspenders guard in case middleware is misconfigured
+    if (currentUser.role === "manager") {
+      return res.status(403).json({ message: "Managers cannot assign other managers" });
+    }
+
     const { managerIds } = req.body;
 
     if (!managerIds?.length) {
@@ -172,7 +187,6 @@ exports.addManagers = async (req, res) => {
     const managers = await User.find({
       _id: { $in: managerIds },
       role: { $in: ["manager", "hr_admin"] },
-      isActive: true,
     });
 
     if (managers.length !== managerIds.length) {
@@ -193,20 +207,29 @@ exports.addManagers = async (req, res) => {
     project.assignedManagers.push(...newManagers.map((m) => m._id));
     await project.save();
 
-    const timelinePromises = newManagers.map((mgr) =>
-      createTimelineEvent({
-        project: project._id,
-        actor: currentUser._id,
-        eventType: "manager_added",
-        description: `${currentUser.fullName} added ${mgr.fullName} as manager of "${project.title}"`,
-        metadata: { managerId: mgr._id, managerName: mgr.fullName },
-      })
+    const promises = newManagers.map((mgr) =>
+      Promise.all([
+        createNotification({
+          recipient: mgr._id,
+          project: project._id,
+          eventType: "manager_added",
+          message: `You have been assigned as manager of project "${project.title}".`,
+          metadata: { projectId: project._id },
+        }),
+        createTimelineEvent({
+          project: project._id,
+          actor: currentUser._id,
+          eventType: "manager_added",
+          description: `${currentUser.name} added ${mgr.name} as manager of "${project.title}"`,
+          metadata: { managerId: mgr._id, managerName: mgr.name },
+        }),
+      ])
     );
-    await Promise.all(timelinePromises);
+    await Promise.all(promises);
 
     const populated = await Project.findById(project._id).populate(
       "assignedManagers",
-      "fullName email"
+      "name email"
     );
 
     return res.status(200).json({
@@ -229,6 +252,11 @@ exports.removeManager = async (req, res) => {
   try {
     const currentUser = await getFullUser(req.user);
     if (!currentUser) return res.status(401).json({ message: "User not found" });
+
+    // Belt-and-suspenders guard in case middleware is misconfigured
+    if (currentUser.role === "manager") {
+      return res.status(403).json({ message: "Managers cannot remove other managers" });
+    }
 
     const project = await Project.findOne({ _id: req.params.id, isDeleted: false });
     if (!project) {
@@ -255,15 +283,25 @@ exports.removeManager = async (req, res) => {
     );
     await project.save();
 
-    const manager = await User.findById(managerId).select("fullName");
+    const manager = await User.findById(managerId).select("name");
 
-    await createTimelineEvent({
-      project: project._id,
-      actor: currentUser._id,
-      eventType: "manager_removed",
-      description: `${currentUser.fullName} removed ${manager?.fullName || "a manager"} from project "${project.title}"`,
-      metadata: { managerId },
-    });
+    await Promise.all([
+      // Notify the removed manager
+      createNotification({
+        recipient: managerId,
+        project: project._id,
+        eventType: "manager_removed",
+        message: `You have been removed as manager of project "${project.title}".`,
+        metadata: { projectId: project._id },
+      }),
+      createTimelineEvent({
+        project: project._id,
+        actor: currentUser._id,
+        eventType: "manager_removed",
+        description: `${currentUser.name} removed ${manager?.name || "a manager"} from project "${project.title}"`,
+        metadata: { managerId },
+      }),
+    ]);
 
     return res.status(200).json({ message: "Manager removed from project" });
   } catch (err) {
