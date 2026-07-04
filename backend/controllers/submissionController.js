@@ -71,20 +71,23 @@ exports.createSubmission = async (req, res) => {
       subtask: subtask._id,
       actor: currentUser._id,
       eventType: "subtask_submission",
-      description: `${currentUser.fullName} submitted work for subtask "${subtask.name}"`,
+      description: `${currentUser.name} submitted work for subtask "${subtask.name}"`,
       metadata: { fileCount: files.length, hasNote: !!req.body.note },
     });
 
-    // Notify all assigned managers
+    // NOTE: createNotification auto-CCs all HR admins on every call —
+    // do not add a manual HR notify loop here, it will double-notify HR.
+    // Message is already third-person ("X submitted work..."), so it reads
+    // correctly for HR as-is with no hrMessage override needed.
     const notifPromises = project.assignedManagers.map((managerId) =>
       createNotification({
         recipient: managerId,
         project: project._id,
         subtask: subtask._id,
         eventType: "subtask_submission",
-        message: `${currentUser.fullName} submitted work for "${subtask.name}" in project "${project.title}".`,
+        message: `${currentUser.name} submitted work for "${subtask.name}" in project "${project.title}".`,
         metadata: {
-          employeeName: currentUser.fullName,
+          employeeName: currentUser.name,
           subtaskName: subtask.name,
           fileCount: files.length,
         },
@@ -93,7 +96,7 @@ exports.createSubmission = async (req, res) => {
     await Promise.all(notifPromises);
 
     const populated = await SubtaskSubmission.findById(submission._id)
-      .populate("submittedBy", "fullName email department");
+      .populate("submittedBy", "name email department");
 
     return res.status(201).json({ message: "Work submitted successfully", submission: populated });
   } catch (err) {
@@ -129,7 +132,7 @@ exports.getSubmissions = async (req, res) => {
     }
 
     const submissions = await SubtaskSubmission.find(filter)
-      .populate("submittedBy", "fullName email department")
+      .populate("submittedBy", "name email department")
       .sort({ createdAt: -1 });
 
     return res.status(200).json({ submissions });
@@ -175,6 +178,26 @@ exports.deleteSubmission = async (req, res) => {
     submission.isDeleted = true;
     submission.deletedAt = new Date();
     await submission.save();
+
+    // NOTE: previously this looped hrAdminIds manually to notify HR.
+    // createNotification now auto-CCs HR on every call, but there is no
+    // longer a primary recipient here at all (the original code only ever
+    // notified HR, with no manager/employee recipient). To preserve that
+    // behaviour without double-notifying, send a single notification
+    // straight to the actor's own HR-CC by calling createNotification with
+    // recipient set to the actor — if the actor IS hr_admin, the wrapper's
+    // self-exclusion means no notification is created at all here, which
+    // matches "don't notify yourself about your own delete." If the actor
+    // is NOT hr_admin (e.g. an edge case where this is reachable by another
+    // role), the actor gets their own copy and HR is auto-CC'd as normal.
+    await createNotification({
+      recipient: currentUser._id,
+      project: submission.project,
+      subtask: submission.subtask,
+      eventType: "subtask_submission",
+      message: `${currentUser.name} deleted a submission.`,
+      metadata: { submissionId: submission._id, actorId: currentUser._id },
+    });
 
     return res.status(200).json({ message: "Submission deleted" });
   } catch (err) {
