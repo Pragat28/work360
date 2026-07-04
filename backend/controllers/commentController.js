@@ -3,6 +3,8 @@ const Subtask = require("../models/Subtask");
 const Project = require("../models/Project");
 const User = require("../models/User");
 const { createNotification, createTimelineEvent } = require("../utils/notifications");
+const transporter = require("../config/emailConfig");
+const { remarkPostedEmail } = require("../config/emailTemplates");
 
 // ─── Helper: fetch full user from decoded JWT ─────────────────────────────────
 const getFullUser = async (decoded) => {
@@ -48,7 +50,7 @@ exports.getComments = async (req, res) => {
       subtask: subtask._id,
       isDeleted: false,
     })
-      .populate("author", "fullName email")
+      .populate("author", "name email")
       .sort({ createdAt: 1 });
 
     return res.status(200).json({ comments });
@@ -106,30 +108,55 @@ exports.addComment = async (req, res) => {
       subtask: subtask._id,
       actor: currentUser._id,
       eventType: "comment_posted",
-      description: `${currentUser.fullName} posted a remark on "${subtask.name}"`,
+      description: `${currentUser.name} posted a remark on "${subtask.name}"`,
       metadata: { commentId: comment._id },
     });
 
-    // Notify all assigned employees on this project
-    const notifPromises = project.assignedEmployees.map((empId) =>
+    const trimmedText = text.trim();
+    const preview = `${trimmedText.substring(0, 100)}${trimmedText.length > 100 ? "..." : ""}`;
+
+    // Notify all assigned employees — createNotification auto-CCs HR on each
+    // call, so no separate HR loop needed here
+    const employees = await User.find({
+      _id: { $in: project.assignedEmployees },
+    }).select("name email");
+
+    const notifPromises = employees.map((emp) =>
       createNotification({
-        recipient: empId,
+        recipient: emp._id,
         project: project._id,
         subtask: subtask._id,
         eventType: "comment_posted",
-        message: `${currentUser.fullName} left a remark on "${subtask.name}": "${text.trim().substring(0, 100)}${text.length > 100 ? "..." : ""}"`,
+        message: `${currentUser.name} left a remark on "${subtask.name}": "${preview}"`,
+        hrMessage: `${currentUser.name} left a remark on "${subtask.name}" in project "${project.title}" for ${emp.name}: "${preview}"`,
         metadata: {
           commentId: comment._id,
-          authorName: currentUser.fullName,
+          authorName: currentUser.name,
           subtaskName: subtask.name,
         },
       })
     );
     await Promise.all(notifPromises);
 
+    // Email each assigned employee — direct transporter call, fire-and-forget
+    employees.forEach((emp) => {
+      const { subject, html } = remarkPostedEmail(
+        emp.name,
+        currentUser.name,
+        subtask.name,
+        trimmedText
+      );
+      transporter.sendMail({
+        from: `"Work360" <${process.env.EMAIL_USER}>`,
+        to: emp.email,
+        subject,
+        html,
+      }).catch((err) => console.error(`Email failed for ${emp.email}:`, err.message));
+    });
+
     const populated = await Comment.findById(comment._id).populate(
       "author",
-      "fullName email"
+      "name email"
     );
 
     return res.status(201).json({ message: "Comment posted", comment: populated });
@@ -176,8 +203,22 @@ exports.deleteComment = async (req, res) => {
       subtask: comment.subtask,
       actor: currentUser._id,
       eventType: "comment_deleted",
-      description: `${currentUser.fullName} deleted a remark on a subtask`,
+      description: `${currentUser.name} deleted a remark on a subtask`,
       metadata: { commentId: comment._id },
+    });
+
+    // Single createNotification to the actor — if actor is hr_admin the
+    // self-exclusion inside createNotification means no doc is created, which
+    // correctly avoids self-notifying. If actor is manager, HR gets auto-CC'd
+    // as normal. Mirrors the deleteSubmission pattern exactly.
+    await createNotification({
+      recipient: currentUser._id,
+      project: comment.project,
+      subtask: comment.subtask,
+      eventType: "comment_deleted",
+      message: `${currentUser.name} deleted a remark on a subtask.`,
+      hrMessage: `${currentUser.name} deleted a remark on subtask in project — comment ID: ${comment._id}.`,
+      metadata: { commentId: comment._id, actorId: currentUser._id },
     });
 
     return res.status(200).json({ message: "Comment deleted" });
