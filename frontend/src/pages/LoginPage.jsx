@@ -26,7 +26,7 @@ export default function LoginPage() {
       const redirect = params.get('redirect');
 
       if (redirect) navigate(redirect);
-      else if (role === 'hr_admin') navigate('/pending-users');
+      else if (role === 'hr_admin') navigate('/hr/dashboard');
       else if (role === 'manager') navigate('/manager/dashboard');
       else if (role === 'employee') navigate('/employee/dashboard');
     } catch (err) {
