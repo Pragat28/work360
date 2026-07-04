@@ -7,8 +7,6 @@ const {
   getSubtasks,
   editSubtask,
   deleteSubtask,
-  startSubtask,
-  completeSubtask,
   searchAssignableUsers 
 } = require("../controllers/subtaskController");
 
@@ -28,8 +26,6 @@ router.get("/", auth, getSubtasks);
 // ── Subtask actions ───────────────────────────────────────────────────────────
 router.patch("/:id", auth, editSubtask);
 router.delete("/:id", auth, deleteSubtask);
-router.patch("/:id/start", auth, startSubtask);
-router.patch("/:id/complete", auth, completeSubtask);
 router.get("/:id/search-users", auth, checkRole("manager", "hr_admin"), searchAssignableUsers);
 // ── Comments ──────────────────────────────────────────────────────────────────
 router.get("/:id/comments", auth, getComments);
