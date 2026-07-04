@@ -158,7 +158,7 @@ const styles = {
     marginTop: '8px'
   },
   bottomText: {
-    textAlign: 'center',
+    textAlign: 'center', 
     fontSize: '14px',
     color: '#6b7280',
     marginTop: '24px'
