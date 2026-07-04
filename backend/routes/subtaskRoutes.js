@@ -4,6 +4,7 @@ const auth = require("../middleware/auth");
 const checkRole = require("../middleware/roleMiddleware");
 
 const {
+  getSubtasks,
   editSubtask,
   deleteSubtask,
   startSubtask,
@@ -21,6 +22,8 @@ const {
   updateRating,
   getRating,
 } = require("../controllers/ratingController");
+
+router.get("/", auth, getSubtasks);
 
 // ── Subtask actions ───────────────────────────────────────────────────────────
 router.patch("/:id", auth, editSubtask);
