@@ -17,14 +17,16 @@ exports.getNotifications = async (req, res) => {
     const currentUser = await getFullUser(req.user);
     if (!currentUser) return res.status(401).json({ message: "User not found" });
 
-    const { unreadOnly, limit = 30, page = 1 } = req.query;
+    const { unreadOnly, project, eventType, limit = 30, page = 1 } = req.query;
 
     const filter = { recipient: currentUser._id };
     if (unreadOnly === "true") filter.isRead = false;
+    if (project && project !== "all") filter.project = project;
+    if (eventType && eventType !== "all") filter.eventType = eventType;
 
     const skip = (parseInt(page) - 1) * parseInt(limit);
 
-    const [notifications, total, unreadCount] = await Promise.all([
+    const [notifications, total, unreadCount, projectRows] = await Promise.all([
       Notification.find(filter)
         .populate("project", "title")
         .populate("subtask", "name")
@@ -33,7 +35,28 @@ exports.getNotifications = async (req, res) => {
         .limit(parseInt(limit)),
       Notification.countDocuments(filter),
       Notification.countDocuments({ recipient: currentUser._id, isRead: false }),
+      // All of this user's project-linked notifications — used to build the
+      // project dropdown with accurate unread dots, independent of the
+      // current page/filters above.
+      Notification.find({ recipient: currentUser._id, project: { $ne: null } })
+        .select("project isRead")
+        .populate("project", "title"),
     ]);
+
+    const projectMap = new Map();
+    for (const row of projectRows) {
+      if (!row.project) continue;
+      const key = row.project._id.toString();
+      if (!projectMap.has(key)) {
+        projectMap.set(key, { _id: key, title: row.project.title, total: 0, unread: 0 });
+      }
+      const entry = projectMap.get(key);
+      entry.total += 1;
+      if (!row.isRead) entry.unread += 1;
+    }
+    const projectsSummary = Array.from(projectMap.values()).sort((a, b) =>
+      a.title.localeCompare(b.title)
+    );
 
     return res.status(200).json({
       notifications,
@@ -43,6 +66,7 @@ exports.getNotifications = async (req, res) => {
         page: parseInt(page),
         pages: Math.ceil(total / parseInt(limit)),
       },
+      projectsSummary,
     });
   } catch (err) {
     console.error("getNotifications error:", err);
@@ -107,6 +131,36 @@ exports.markAllAsRead = async (req, res) => {
     });
   } catch (err) {
     console.error("markAllAsRead error:", err);
+    return res.status(500).json({ message: "Server error", error: err.message });
+  }
+};
+
+// =============================================================================
+// @desc    Get notification stats for the logged-in user
+// @route   GET /api/notifications/stats
+// @access  All roles
+// =============================================================================
+
+exports.getNotificationStats = async (req, res) => {
+  try {
+    const currentUser = await getFullUser(req.user);
+    if (!currentUser) return res.status(401).json({ message: "User not found" });
+
+    const { project } = req.query;
+
+    const filter = { recipient: currentUser._id };
+    if (project && project !== "all") filter.project = project;
+
+    const [total, unread, overdue, ratings] = await Promise.all([
+      Notification.countDocuments(filter),
+      Notification.countDocuments({ ...filter, isRead: false }),
+      Notification.countDocuments({ ...filter, eventType: "subtask_overdue" }),
+      Notification.countDocuments({ ...filter, eventType: "rating_submitted" }),
+    ]);
+
+    return res.status(200).json({ total, unread, overdue, ratings });
+  } catch (err) {
+    console.error("getNotificationStats error:", err);
     return res.status(500).json({ message: "Server error", error: err.message });
   }
 };
