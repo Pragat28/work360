@@ -17,7 +17,8 @@ const timelineEventSchema = new mongoose.Schema(
     actor: {
       type: mongoose.Schema.Types.ObjectId,
       ref: "User",
-      required: true,
+      required: false,
+      default: null, // null for system-generated events (like overdue)
     },
 
     eventType: {
@@ -30,7 +31,10 @@ const timelineEventSchema = new mongoose.Schema(
         "subtask_started",
         "subtask_completed",
         "subtask_overdue",
+        "subtask_submission",
+        "subtask_edited",
         "subtask_deleted",
+        "subtask_assigned",
         "rating_submitted",
         "rating_updated",
         "comment_posted",
