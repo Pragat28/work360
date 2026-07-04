@@ -15,21 +15,41 @@ const apiFetch = (path, opts = {}) =>
     },
   }).then((r) => r.json());
 
+// NOTE: keys here must match TimelineEvent's `eventType` enum exactly — the
+// schema enforces that enum, so anything else stored under `activityConfig`
+// is dead code, and anything in the enum missing from here silently falls
+// back to FALLBACK_ACTIVITY below instead of showing the right icon/verb.
 const activityConfig = {
-  subtask_completed: { icon: "✓", bg: "#dcfce7", color: "#16a34a", verb: "marked", suffix: "as done" },
-  subtask_started:   { icon: "▶", bg: "#dbeafe", color: "#2563eb", verb: "started working on", suffix: "" },
-  comment:           { icon: "💬", bg: "#f3e8ff", color: "#7c3aed", verb: "left a comment on", suffix: "" },
-  rating:            { icon: "★", bg: "#fef9c3", color: "#ca8a04", verb: "rated", suffix: "" },
-  project_created:   { icon: "+", bg: "#ffedd5", color: "#ea580c", verb: "created project", suffix: "" },
-  subtask_created:   { icon: "📝", bg: "#fce7f3", color: "#be185d", verb: "created subtask", suffix: "" },
-  project_edited:    { icon: "✏️", bg: "#e0f2fe", color: "#0369a1", verb: "edited project", suffix: "" },
-  project_deleted:   { icon: "🗑", bg: "#fee2e2", color: "#b91c1c", verb: "deleted project", suffix: "" },
-  subtask_deleted:   { icon: "🗑", bg: "#fee2e2", color: "#b91c1c", verb: "deleted subtask", suffix: "" },
-  project_assigned:  { icon: "👤", bg: "#ede9fe", color: "#6d28d9", verb: "was assigned to project", suffix: "" },
-  project_completed: { icon: "🎉", bg: "#dcfce7", color: "#15803d", verb: "completed project", suffix: "" },
-  role_assigned:     { icon: "🏷", bg: "#e0e7ff", color: "#4338ca", verb: "was assigned the role of", suffix: "" },
-  user_registered:   { icon: "🆕", bg: "#fef3c7", color: "#b45309", verb: "registered and is pending role assignment", suffix: "" },
+  project_created:     { icon: "+",  bg: "#ffedd5", color: "#ea580c", verb: "created project",              suffix: "" },
+  project_edited:      { icon: "✏️", bg: "#e0f2fe", color: "#0369a1", verb: "edited project",                suffix: "" },
+  project_deleted:     { icon: "🗑",  bg: "#fee2e2", color: "#b91c1c", verb: "deleted project",               suffix: "" },
+
+  subtask_created:     { icon: "📝", bg: "#fce7f3", color: "#be185d", verb: "created subtask",               suffix: "" },
+  subtask_edited:      { icon: "✏️", bg: "#e0f2fe", color: "#0369a1", verb: "edited subtask",                 suffix: "" },
+  subtask_assigned:    { icon: "👤", bg: "#ede9fe", color: "#6d28d9", verb: "was assigned",                   suffix: "" },
+  subtask_started:     { icon: "▶",  bg: "#dbeafe", color: "#2563eb", verb: "started working on",             suffix: "" },
+  subtask_completed:   { icon: "✓",  bg: "#dcfce7", color: "#16a34a", verb: "marked",                        suffix: "as done" },
+  subtask_overdue:     { icon: "⚠️", bg: "#fee2e2", color: "#b91c1c", verb: "has an overdue subtask",         suffix: "" },
+  subtask_submission:  { icon: "📤", bg: "#e0e7ff", color: "#4f46e5", verb: "submitted work on",              suffix: "" },
+  subtask_deleted:     { icon: "🗑",  bg: "#fee2e2", color: "#b91c1c", verb: "deleted subtask",                suffix: "" },
+
+  rating_submitted:    { icon: "★",  bg: "#fef9c3", color: "#ca8a04", verb: "rated",                          suffix: "" },
+  rating_updated:      { icon: "★",  bg: "#fef3c7", color: "#b45309", verb: "updated the rating for",         suffix: "" },
+
+  comment_posted:      { icon: "💬", bg: "#f3e8ff", color: "#7c3aed", verb: "left a comment on",              suffix: "" },
+  comment_deleted:     { icon: "🗑",  bg: "#f3e8ff", color: "#7c3aed", verb: "deleted a comment on",           suffix: "" },
+
+  employee_added:      { icon: "➕", bg: "#dcfce7", color: "#15803d", verb: "was added to project",            suffix: "" },
+  employee_removed:    { icon: "➖", bg: "#fee2e2", color: "#b91c1c", verb: "was removed from project",        suffix: "" },
+  manager_added:       { icon: "➕", bg: "#e0e7ff", color: "#4338ca", verb: "was made manager of",             suffix: "" },
+  manager_removed:     { icon: "➖", bg: "#fee2e2", color: "#b91c1c", verb: "was removed as manager of",       suffix: "" },
+
+  status_changed:      { icon: "🔄", bg: "#f1f5f9", color: "#475569", verb: "changed the status of",          suffix: "" },
 };
+
+// Generic, honest fallback for any eventType not covered above — avoids
+// silently mislabeling unknown events as comments.
+const FALLBACK_ACTIVITY = { icon: "🔔", bg: "#f1f5f9", color: "#64748b", verb: "made an update on", suffix: "" };
 
 // ─── Map a project's progress % to a status label ────────────────────────────
 const statusFromProgress = (percent) => {
@@ -83,10 +103,16 @@ export default function HRAdminDashboard() {
         }
 
         // ── 3. Parallel Fetches using the functional project detail route ──
-        const [pendingRes, timelineRes, peopleRes, detailResults] = await Promise.all([
+        // NOTE: added /timeline/stats here — same endpoint the Timeline page
+        // uses for its live overdue count. Previously overdue was tallied
+        // from each subtask's stored `status` field below, which only flips
+        // to "overdue" once the daily cron job runs — so it silently
+        // undercounted anything overdue since the last cron pass.
+        const [pendingRes, timelineRes, peopleRes, statsRes, detailResults] = await Promise.all([
           apiFetch("/admin/pending-users"),
           apiFetch("/timeline?limit=6&page=1"),
           apiFetch("/admin/users"),
+          apiFetch("/timeline/stats"), // org-wide, no projectId — matches Timeline page's live source
           Promise.all(projects.map((p) => apiFetch(`/projects/${p._id}`))),
         ]);
 
@@ -105,17 +131,16 @@ export default function HRAdminDashboard() {
 
         let subtasksPending = 0;
         let subtasksInProgress = 0;
-        let subtasksOverdue = 0;
         let ratingSum = 0;
         let ratingCount = 0;
 
         // ── 4. Aggregate subtask specifics securely from the working project detail payload ──
+        // (Overdue is intentionally NOT tallied here anymore — see note above.)
         for (const res of detailResults) {
           const subtasks = res.project?.subtasks || [];
           for (const st of subtasks) {
             if (st.status === "pending")     subtasksPending    += 1;
             if (st.status === "in_progress") subtasksInProgress += 1;
-            if (st.status === "overdue")     subtasksOverdue    += 1;   
             if (st.rating?.stars) {
               ratingSum += st.rating.stars;
               ratingCount += 1;
@@ -123,9 +148,13 @@ export default function HRAdminDashboard() {
           }
         }
 
+        // ── 5. Live overdue count, sourced from the same endpoint the
+        //       Timeline page already trusts ──
+        const subtasksOverdue = statsRes.overdueSubtasks ?? 0;
+
         const orgAvgRating = ratingCount === 0 ? null : (ratingSum / ratingCount).toFixed(1);
 
-        // ── 5. Shape projects for the dashboard UI ───────────────────────
+        // ── 6. Shape projects for the dashboard UI ───────────────────────
         const shapedProjects = projects.slice(0, 6).map((p, i) => ({
           id: p._id,
           name: p.title,
@@ -149,7 +178,7 @@ export default function HRAdminDashboard() {
             stillToFinish,
             subtasksPending,
             subtasksInProgress,
-            overdueCount: subtasksOverdue, // Safely extracted from verified project data
+            overdueCount: subtasksOverdue, // now sourced live via /timeline/stats
             completionPct,
             orgAvgRating,
             pendingUsers,
@@ -330,7 +359,7 @@ export default function HRAdminDashboard() {
               <p style={{ fontSize: 13, color: "#94a3b8" }}>No recent activity.</p>
             )}
             {recentActivity.map((item) => {
-              const cfg = activityConfig[item.type] || activityConfig.comment;
+              const cfg = activityConfig[item.type] || FALLBACK_ACTIVITY;
               return (
                 <div key={item.id} style={styles.activityItem}>
                   <div style={{ ...styles.activityIcon, background: cfg.bg, color: cfg.color }}>{cfg.icon}</div>
