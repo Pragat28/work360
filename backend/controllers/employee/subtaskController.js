@@ -84,6 +84,7 @@ exports.startSubtask = async (req, res) => {
           ? `${currentUser.name} has started "${subtask.name}" in project "${project.title}" — note: this is past the due date.`
           : `${currentUser.name} has started "${subtask.name}" in project "${project.title}".`,
         metadata: { employeeName: currentUser.name, subtaskName: subtask.name, isLate },
+        ccHrAdmins: false, // recipients already includes HR admins via getNotifyRecipients
         emailFn: async () => {
           const { subject, html } = subtaskStartedEmail(
             recipient.name,
@@ -177,6 +178,7 @@ exports.completeSubtask = async (req, res) => {
           ? `${currentUser.name} has completed "${updatedSubtask.name}" in project "${project.title}" (late). Please log in to rate it.`
           : `${currentUser.name} has completed "${updatedSubtask.name}" in project "${project.title}". Please log in to rate it.`,
         metadata: { employeeName: currentUser.name, subtaskName: updatedSubtask.name, isLate },
+        ccHrAdmins: false, // recipients already includes HR admins via getNotifyRecipients
         emailFn: async () => {
           const { subject, html } = subtaskCompletedEmail(
             recipient.name,
@@ -217,6 +219,7 @@ exports.completeSubtask = async (req, res) => {
           eventType: "project_completed",
           message: `Project "${project.title}" is fully complete. Average rating: ${avg}/5.`,
           metadata: { avgRating: avg },
+          ccHrAdmins: false, // recipients already includes HR admins via getNotifyRecipients
         })
       );
       await Promise.all(projectCompletePromises);
