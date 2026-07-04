@@ -3,14 +3,31 @@ const cors = require('cors');
 const connectDB = require('./config/db');
 require('dotenv').config();
 
+const cron = require("node-cron");
+const checkOverdueSubtasks = require("./jobs/overdueChecker");
+const subtaskReminder = require("./jobs/reminderCron");
+const { startTimelineReportJob } = require('./jobs/timelineReportJob');
+
 const app = express();
 
 // Middleware
 app.use(express.json());
 app.use(cors());
 
+app.use((req, res, next) => {
+  console.log(➡️  ${req.method} ${req.url});
+  next();
+});
+
 // Connect to MongoDB
 connectDB();
+
+// Schedule the overdue subtask check to run every day at midnight
+cron.schedule("0 * * * *", checkOverdueSubtasks);
+cron.schedule("0 8 * * *", subtaskReminder); // Run reminder job daily at 08:00
+startTimelineReportJob();
+
+const { subtaskRouter, submissionRouter } = require('./routes/submissionRoutes');
 
 // Routes
 const authRoutes = require('./routes/authRoutes');
@@ -19,13 +36,19 @@ const adminRoutes = require('./routes/adminRoutes');
 app.use('/api/admin', adminRoutes);
 
 app.use('/api/auth', authRoutes);
-app.use('/api/submissions', submissionRoutes);
 
 app.use("/api/projects", require("./routes/projectRoutes"));
 app.use("/api/subtasks", require("./routes/subtaskRoutes"));
+
+app.use('/api/employee', require('./routes/employee/index'));
+
+// add this — nests under subtask routes with mergeParams
+app.use('/api/subtasks/:id/submissions', subtaskRouter);
+
 app.use("/api/comments", require("./routes/commentRoutes"));
 app.use("/api/timeline", require("./routes/timelineRoutes"));
 app.use("/api/notifications", require("./routes/notificationRoutes"));
+app.use("/api/profile", require("./routes/profileRoutes"));   // ← add this line
 
 // Test route
 app.get('/', (req, res) => {
