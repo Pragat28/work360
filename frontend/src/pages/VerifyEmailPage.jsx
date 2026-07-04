@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useState, useRef } from 'react';
 import { useParams, Link } from 'react-router-dom';
 import { verifyEmail } from '../utils/api';
 
@@ -6,8 +6,12 @@ export default function VerifyEmailPage() {
   const { token } = useParams();
   const [status, setStatus] = useState('loading');
   const [message, setMessage] = useState('');
+  const hasCalled = useRef(false); // ← guard
 
   useEffect(() => {
+    if (hasCalled.current) return; // ← stop second call
+    hasCalled.current = true;
+
     const verify = async () => {
       try {
         const res = await verifyEmail(token);
@@ -18,6 +22,7 @@ export default function VerifyEmailPage() {
         setStatus('error');
       }
     };
+
     verify();
   }, [token]);
 
