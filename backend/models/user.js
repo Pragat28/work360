@@ -23,6 +23,9 @@ const userSchema = new mongoose.Schema({
     type: Boolean,
     default: false
   },
+  verificationTokenExpire: {
+    type: Date
+  },
   verificationToken: {
     type: String
   },
@@ -42,6 +45,10 @@ const userSchema = new mongoose.Schema({
   department: {
     type: String,
     default: ''
+  },
+  reportSentAt: {       // ✅ Tracks when 3-month report was sent
+    type: Date,
+    default: null
   }
 }, { timestamps: true });
 
