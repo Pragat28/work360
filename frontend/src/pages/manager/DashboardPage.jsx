@@ -16,14 +16,18 @@ const apiFetch = (path, opts = {}) =>
   }).then((r) => r.json());
 
 // ─── Maps every eventType in the TimelineEvent schema to a visual treatment ──
+// NOTE: keys must match the schema's `eventType` enum exactly. "project_assigned"
+// and "project_completed" were previously here but aren't in that enum — the
+// schema can never actually produce them, so they were dead code. Removed,
+// and added the missing "subtask_assigned" (a very common real event that
+// was silently falling through to the fallback below).
 const activityConfig = {
   project_created:    { icon: "+",  bg: "#ffedd5", color: "#ea580c", verb: "created project", suffix: "" },
   project_edited:     { icon: "✏️", bg: "#e0f2fe", color: "#0369a1", verb: "edited project", suffix: "" },
   project_deleted:    { icon: "🗑", bg: "#fee2e2", color: "#b91c1c", verb: "deleted project", suffix: "" },
-  project_assigned:   { icon: "👤", bg: "#ede9fe", color: "#6d28d9", verb: "was assigned to project", suffix: "" },
-  project_completed:  { icon: "🎉", bg: "#dcfce7", color: "#15803d", verb: "completed project", suffix: "" },
 
   subtask_created:    { icon: "📝", bg: "#fce7f3", color: "#be185d", verb: "created subtask", suffix: "" },
+  subtask_assigned:   { icon: "👤", bg: "#ede9fe", color: "#6d28d9", verb: "was assigned", suffix: "" },
   subtask_started:    { icon: "▶",  bg: "#dbeafe", color: "#2563eb", verb: "started working on", suffix: "" },
   subtask_completed:  { icon: "✓",  bg: "#dcfce7", color: "#16a34a", verb: "marked", suffix: "as done" },
   subtask_overdue:    { icon: "⚠️", bg: "#fef2f2", color: "#dc2626", verb: "missed the deadline for", suffix: "" },
@@ -272,12 +276,14 @@ export default function ManagerDashboard() {
           },
         ].map((card) => (
           <div key={card.label} style={styles.statCard}>
-            <div style={styles.statTop}>
-              <span style={styles.statLabel}>{card.label}</span>
-              <span style={{ fontSize: 18 }}>{card.icon}</span>
+            <div>
+              <div style={styles.statTop}>
+                <span style={styles.statLabel}>{card.label}</span>
+                <span style={{ fontSize: 18 }}>{card.icon}</span>
+              </div>
+              <div style={{ ...styles.statValue, color: card.accent }}>{card.value}</div>
+              <div style={styles.statSub}>{card.sub}</div>
             </div>
-            <div style={{ ...styles.statValue, color: card.accent }}>{card.value}</div>
-            <div style={styles.statSub}>{card.sub}</div>
             <div style={{ ...styles.statBar, background: card.accent + "22" }}>
               <div style={{ ...styles.statBarFill, background: card.accent, width: `${card.fill}%` }} />
             </div>
@@ -399,16 +405,21 @@ const styles = {
     cursor: "pointer", fontFamily: "inherit", flexShrink: 0,
   },
 
-  statsGrid:    { display: "grid", gridTemplateColumns: "repeat(5, 1fr)", gap: 14 },
+  statsGrid:    { display: "grid", gridTemplateColumns: "repeat(5, 1fr)", gap: 14, alignItems: "stretch" },
+  // ── Fixed height + space-between so the progress bar always sits at the
+  //    same vertical position regardless of how many lines `sub` wraps to.
   statCard: {
     background: "#fff", borderRadius: 12, padding: "18px 16px",
-    border: "1px solid #f1f5f9", display: "flex", flexDirection: "column", gap: 6,
+    border: "1px solid #f1f5f9", display: "flex", flexDirection: "column",
+    justifyContent: "space-between", minHeight: 132, boxSizing: "border-box",
   },
   statTop:     { display: "flex", alignItems: "center", justifyContent: "space-between" },
   statLabel:   { fontSize: 12, color: "#64748b", fontWeight: 500 },
-  statValue:   { fontSize: 28, fontWeight: 700, lineHeight: 1 },
-  statSub:     { fontSize: 11, color: "#94a3b8" },
-  statBar:     { height: 4, borderRadius: 4, overflow: "hidden", marginTop: 4 },
+  statValue:   { fontSize: 28, fontWeight: 700, lineHeight: 1, marginTop: 6 },
+  // Reserves consistent vertical space (~2 lines) whether the sub text
+  // wraps to one line or two, so cards line up regardless of copy length.
+  statSub:     { fontSize: 11, color: "#94a3b8", marginTop: 4, minHeight: 28, lineHeight: "14px" },
+  statBar:     { height: 4, borderRadius: 4, overflow: "hidden", marginTop: 10 },
   statBarFill: { height: "100%", borderRadius: 4 },
   twoCol:      { display: "grid", gridTemplateColumns: "1fr 1fr", gap: 20 },
   card:        { background: "#fff", borderRadius: 12, padding: "20px 22px", border: "1px solid #f1f5f9" },
