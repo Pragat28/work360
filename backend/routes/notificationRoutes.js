@@ -6,11 +6,13 @@ const {
   getNotifications,
   markAsRead,
   markAllAsRead,
+  getNotificationStats,
 } = require("../controllers/notificationController");
 
 // ── Notifications ─────────────────────────────────────────────────────────────
 router.get("/", auth, getNotifications);
 router.patch("/read-all", auth, markAllAsRead);  // must be before /:id/read
+router.get("/stats", auth, getNotificationStats);
 router.patch("/:id/read", auth, markAsRead);
 
 module.exports = router;
