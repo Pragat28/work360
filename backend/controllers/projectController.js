@@ -2,6 +2,8 @@ const Project = require("../models/Project");
 const Subtask = require("../models/Subtask");
 const User = require("../models/User");
 const { createNotification, createTimelineEvent } = require("../utils/notifications");
+const transporter = require("../config/emailConfig");
+const { projectAssignedEmail } = require("../config/emailTemplates");
 
 // ─── Helper: fetch full user from decoded JWT ─────────────────────────────────
 const getFullUser = async (decoded) => {
@@ -79,12 +81,10 @@ exports.searchUsers = async (req, res) => {
 
     const { q = "", role } = req.query;
 
-    // Managers may only search for employees
     if (currentUser.role === "manager" && role && role !== "employee") {
       return res.status(403).json({ message: "Managers can only search for employees" });
     }
 
-    // Build role filter
     let roleFilter;
     if (currentUser.role === "manager") {
       roleFilter = "employee";
@@ -150,12 +150,13 @@ exports.createProject = async (req, res) => {
       return res.status(400).json({ message: "endDate must be after startDate" });
     }
 
+    let validatedEmployees = [];
     if (assignedEmployees?.length) {
-      const employees = await User.find({
+      validatedEmployees = await User.find({
         _id: { $in: assignedEmployees },
         role: "employee",
       });
-      if (employees.length !== assignedEmployees.length) {
+      if (validatedEmployees.length !== assignedEmployees.length) {
         return res.status(400).json({
           message: "One or more assigned employees are invalid or inactive",
         });
@@ -163,6 +164,7 @@ exports.createProject = async (req, res) => {
     }
 
     let managerIds = [];
+    let validatedManagers = []; // ── kept outside the branch so we can notify them below ──
 
     if (currentUser.role === "manager") {
       if (assignedManagers?.length) {
@@ -183,6 +185,7 @@ exports.createProject = async (req, res) => {
           });
         }
         managerIds = [...assignedManagers];
+        validatedManagers = managers;
       }
     }
 
@@ -209,31 +212,95 @@ exports.createProject = async (req, res) => {
       await Subtask.insertMany(subtaskDocs);
     }
 
+    // ── Project-level timeline event ──────────────────────────────────────────
     await createTimelineEvent({
       project: project._id,
       actor: currentUser._id,
       eventType: "project_created",
-      description: `${currentUser.fullName} created project "${title}"`,
+      description: `${currentUser.name} created project "${title}"`,
       metadata: { title, startDate, endDate },
     });
 
-    if (assignedEmployees?.length) {
-      const notifPromises = assignedEmployees.map((empId) =>
+    if (validatedEmployees.length) {
+      // ── Per-employee timeline events, independently of notifications ──────────
+      await Promise.all(
+        validatedEmployees.map((emp) =>
+          createTimelineEvent({
+            project: project._id,
+            actor: currentUser._id,
+            eventType: "employee_added",
+            description: `${currentUser.name} added ${emp.name} to project "${title}"`,
+            metadata: { employeeId: emp._id, employeeName: emp.name },
+          })
+        )
+      );
+
+      // ── Notifications — createNotification auto-CCs HR, no manual loop needed ─
+      const notifPromises = validatedEmployees.map((emp) =>
         createNotification({
-          recipient: empId,
+          recipient: emp._id,
           project: project._id,
           eventType: "project_assigned",
           message: `You have been assigned to project "${title}". Starts ${new Date(startDate).toDateString()}, ends ${new Date(endDate).toDateString()}.`,
+          hrMessage: `${currentUser.name} assigned ${emp.name} to project "${title}". Starts ${new Date(startDate).toDateString()}, ends ${new Date(endDate).toDateString()}.`,
           metadata: { projectId: project._id, title },
         })
       );
       await Promise.all(notifPromises);
+
+      // ── Emails (fire-and-forget) ──────────────────────────────────────────────
+      validatedEmployees.forEach((emp) => {
+        const { subject, html } = projectAssignedEmail(emp.name, title, startDate, endDate);
+        transporter.sendMail({
+          from: `"BFSI Edge" <${process.env.EMAIL_USER}>`,
+          to: emp.email,
+          subject,
+          html,
+        }).catch((err) => console.error(`Email failed for ${emp.email}:`, err.message));
+      });
     }
 
+    // ── Timeline + notification for managers assigned at creation (HR-created
+    // projects only — a manager creating their own project already knows) ──────
+    if (validatedManagers.length) {
+      await Promise.all(
+        validatedManagers.map((mgr) =>
+          createTimelineEvent({
+            project: project._id,
+            actor: currentUser._id,
+            eventType: "manager_added",
+            description: `${currentUser.name} added ${mgr.name} as manager of project "${title}"`,
+            metadata: { managerId: mgr._id, managerName: mgr.name },
+          })
+        )
+      );
+
+      const managerNotifPromises = validatedManagers.map((mgr) =>
+        createNotification({
+          recipient: mgr._id,
+          project: project._id,
+          eventType: "project_assigned",
+          message: `You have been assigned as manager of project "${title}". Starts ${new Date(startDate).toDateString()}, ends ${new Date(endDate).toDateString()}.`,
+          hrMessage: `${currentUser.name} assigned ${mgr.name} as manager of project "${title}". Starts ${new Date(startDate).toDateString()}, ends ${new Date(endDate).toDateString()}.`,
+          metadata: { projectId: project._id, title },
+        })
+      );
+      await Promise.all(managerNotifPromises);
+    }
+
+    await createNotification({
+      recipient: currentUser._id,
+      project: project._id,
+      eventType: "project_created",
+      message: `You created project "${title}".`,
+      hrMessage: `${currentUser.name} created project "${title}".`,
+      metadata: { title, startDate, endDate, actorId: currentUser._id },
+    });
+
     const populated = await Project.findById(project._id)
-      .populate("assignedEmployees", "fullName email department")
-      .populate("assignedManagers", "fullName email")
-      .populate("createdBy", "fullName");
+      .populate("assignedEmployees", "name email department")
+      .populate("assignedManagers", "name email")
+      .populate("createdBy", "name");
 
     return res.status(201).json({ message: "Project created", project: populated });
   } catch (err) {
@@ -264,9 +331,9 @@ exports.getProjects = async (req, res) => {
     }
 
     const projects = await Project.find(filter)
-      .populate("assignedEmployees", "fullName email department")
-      .populate("assignedManagers", "fullName email")
-      .populate("createdBy", "fullName")
+      .populate("assignedEmployees", "name email department")
+      .populate("assignedManagers", "name email")
+      .populate("createdBy", "name")
       .sort({ createdAt: -1 });
 
     const projectIds = projects.map((p) => p._id);
@@ -316,9 +383,9 @@ exports.getProject = async (req, res) => {
     }
 
     const project = await Project.findOne(filter)
-      .populate("assignedEmployees", "fullName email department")
-      .populate("assignedManagers", "fullName email")
-      .populate("createdBy", "fullName");
+      .populate("assignedEmployees", "name email department")
+      .populate("assignedManagers", "name email")
+      .populate("createdBy", "name");
 
     if (!project) {
       return res.status(404).json({ message: "Project not found" });
@@ -328,7 +395,7 @@ exports.getProject = async (req, res) => {
       project: project._id,
       isDeleted: false,
     })
-      .populate("completedBy", "fullName")
+      .populate("assignedTo", "name email department")
       .sort({ order: 1 });
 
     const Rating = require("../models/Rating");
@@ -336,7 +403,7 @@ exports.getProject = async (req, res) => {
     const ratings = await Rating.find({
       subtask: { $in: subtaskIds },
       isArchived: false,
-    }).populate("ratedBy", "fullName");
+    }).populate("ratedBy", "name");
 
     const ratingBySubtask = {};
     for (const r of ratings) {
@@ -396,10 +463,14 @@ exports.editProject = async (req, res) => {
       "notificationDays",
     ];
 
-    const changes = {};
+    // ── fieldChanges tracks ONLY plain field edits (title, dates, status, etc.)
+    // This is kept separate from membership changes so that adding/removing an
+    // employee or manager does NOT, by itself, fire a generic "project_edited"
+    // timeline event / notification alongside the specific membership event.
+    const fieldChanges = {};
     for (const field of allowedFields) {
       if (req.body[field] !== undefined) {
-        changes[field] = { from: project[field], to: req.body[field] };
+        fieldChanges[field] = { from: project[field], to: req.body[field] };
         project[field] = req.body[field];
       }
     }
@@ -409,6 +480,14 @@ exports.editProject = async (req, res) => {
         return res.status(400).json({ message: "endDate must be after startDate" });
       }
     }
+
+    // ── changes holds the full diff (fields + membership) purely for metadata
+    // logging on the project_edited event when it does fire.
+    const changes = { ...fieldChanges };
+
+    // ── Track newly added and removed employees ───────────────────────────────
+    let newlyAddedEmployees = [];
+    let removedEmployees = [];
 
     if (req.body.assignedEmployees !== undefined) {
       const employees = await User.find({
@@ -420,12 +499,30 @@ exports.editProject = async (req, res) => {
           message: "One or more assigned employees are invalid or inactive",
         });
       }
+
+      const previousIds = project.assignedEmployees.map((id) => id.toString());
+      const newIds = req.body.assignedEmployees.map((id) => id.toString());
+
+      const addedIds = newIds.filter((id) => !previousIds.includes(id));
+      const removedIds = previousIds.filter((id) => !newIds.includes(id));
+
+      newlyAddedEmployees = employees.filter((e) => addedIds.includes(e._id.toString()));
+
+      // Fetch removed employees' details for notification + timeline
+      if (removedIds.length) {
+        removedEmployees = await User.find({ _id: { $in: removedIds } }).select("name email");
+      }
+
       changes.assignedEmployees = {
         from: project.assignedEmployees,
         to: req.body.assignedEmployees,
       };
       project.assignedEmployees = req.body.assignedEmployees;
     }
+
+    // ── Track newly added and removed managers ─────────────────────────────────
+    let newlyAddedManagers = [];
+    let removedManagers = [];
 
     if (req.body.assignedManagers !== undefined) {
       if (currentUser.role === "manager") {
@@ -442,6 +539,19 @@ exports.editProject = async (req, res) => {
           message: "One or more assigned managers are invalid or inactive",
         });
       }
+
+      const previousManagerIds = project.assignedManagers.map((id) => id.toString());
+      const newManagerIds = req.body.assignedManagers.map((id) => id.toString());
+
+      const addedManagerIds = newManagerIds.filter((id) => !previousManagerIds.includes(id));
+      const removedManagerIds = previousManagerIds.filter((id) => !newManagerIds.includes(id));
+
+      newlyAddedManagers = managers.filter((m) => addedManagerIds.includes(m._id.toString()));
+
+      if (removedManagerIds.length) {
+        removedManagers = await User.find({ _id: { $in: removedManagerIds } }).select("name email");
+      }
+
       changes.assignedManagers = {
         from: project.assignedManagers,
         to: req.body.assignedManagers,
@@ -451,18 +561,175 @@ exports.editProject = async (req, res) => {
 
     await project.save();
 
-    await createTimelineEvent({
-      project: project._id,
-      actor: currentUser._id,
-      eventType: "project_edited",
-      description: `${currentUser.fullName} edited project "${project.title}"`,
-      metadata: { changes },
-    });
+    // ── Generic "project edited" timeline + notification ───────────────────────
+    // Only fires when an actual field (title, description, dates, status,
+    // notificationDays) changed. Pure membership changes (employees/managers
+    // added or removed) are reported via their own specific events below, so
+    // we don't want a redundant "Project edited" entry cluttering the feed.
+    const hasFieldChanges = Object.keys(fieldChanges).length > 0;
+
+    if (hasFieldChanges) {
+      await createTimelineEvent({
+        project: project._id,
+        actor: currentUser._id,
+        eventType: "project_edited",
+        description: `${currentUser.name} edited project "${project.title}"`,
+        metadata: { changes },
+      });
+
+      await createNotification({
+        recipient: currentUser._id,
+        project: project._id,
+        eventType: "project_edited",
+        message: `You edited project "${project.title}".`,
+        hrMessage: `${currentUser.name} edited project "${project.title}".`,
+        metadata: { changes, actorId: currentUser._id },
+      });
+    }
+
+    // ── Timeline + notification + email for newly added employees ─────────────
+    if (newlyAddedEmployees.length) {
+      const { addedToProjectEmail } = require("../config/emailTemplates");
+
+      // Timeline events first, independently
+      await Promise.all(
+        newlyAddedEmployees.map((emp) =>
+          createTimelineEvent({
+            project: project._id,
+            actor: currentUser._id,
+            eventType: "employee_added",
+            description: `${currentUser.name} added ${emp.name} to project "${project.title}"`,
+            metadata: { employeeId: emp._id, employeeName: emp.name },
+          })
+        )
+      );
+
+      const notifPromises = newlyAddedEmployees.map((emp) =>
+        createNotification({
+          recipient: emp._id,
+          project: project._id,
+          eventType: "employee_added",
+          message: `You have been added to project "${project.title}".`,
+          hrMessage: `${currentUser.name} added ${emp.name} to project "${project.title}".`,
+          metadata: { projectId: project._id },
+        })
+      );
+      await Promise.all(notifPromises);
+
+      newlyAddedEmployees.forEach((emp) => {
+        const { subject, html } = addedToProjectEmail(
+          emp.name,
+          project.title,
+          project.startDate,
+          project.endDate
+        );
+        transporter.sendMail({
+          from: `"BFSI Edge" <${process.env.EMAIL_USER}>`,
+          to: emp.email,
+          subject,
+          html,
+        }).catch((err) => console.error(`Email failed for ${emp.email}:`, err.message));
+      });
+    }
+
+    // ── Timeline + notification + email for removed employees ─────────────────
+    if (removedEmployees.length) {
+      const { removedFromProjectEmail } = require("../config/emailTemplates");
+
+      // Timeline events first, independently
+      await Promise.all(
+        removedEmployees.map((emp) =>
+          createTimelineEvent({
+            project: project._id,
+            actor: currentUser._id,
+            eventType: "employee_removed",
+            description: `${currentUser.name} removed ${emp.name} from project "${project.title}"`,
+            metadata: { employeeId: emp._id, employeeName: emp.name },
+          })
+        )
+      );
+
+      const notifPromises = removedEmployees.map((emp) =>
+        createNotification({
+          recipient: emp._id,
+          project: project._id,
+          eventType: "employee_removed",
+          message: `You have been removed from project "${project.title}".`,
+          hrMessage: `${currentUser.name} removed ${emp.name} from project "${project.title}".`,
+          metadata: { projectId: project._id, employeeId: emp._id },
+        })
+      );
+      await Promise.all(notifPromises);
+
+      removedEmployees.forEach((emp) => {
+        const { subject, html } = removedFromProjectEmail(emp.name, project.title);
+        transporter.sendMail({
+          from: `"BFSI Edge" <${process.env.EMAIL_USER}>`,
+          to: emp.email,
+          subject,
+          html,
+        }).catch((err) => console.error(`Email failed for ${emp.email}:`, err.message));
+      });
+    }
+
+    // ── Timeline + notification for newly added managers ───────────────────────
+    if (newlyAddedManagers.length) {
+      await Promise.all(
+        newlyAddedManagers.map((mgr) =>
+          createTimelineEvent({
+            project: project._id,
+            actor: currentUser._id,
+            eventType: "manager_added",
+            description: `${currentUser.name} added ${mgr.name} to project "${project.title}"`,
+            metadata: { managerId: mgr._id, managerName: mgr.name },
+          })
+        )
+      );
+
+      const managerAddedNotifPromises = newlyAddedManagers.map((mgr) =>
+        createNotification({
+          recipient: mgr._id,
+          project: project._id,
+          eventType: "manager_added",
+          message: `You have been assigned as a manager on project "${project.title}".`,
+          hrMessage: `${currentUser.name} added ${mgr.name} as a manager on project "${project.title}".`,
+          metadata: { projectId: project._id, managerId: mgr._id },
+        })
+      );
+      await Promise.all(managerAddedNotifPromises);
+    }
+
+    // ── Timeline + notification for removed managers ───────────────────────────
+    if (removedManagers.length) {
+      await Promise.all(
+        removedManagers.map((mgr) =>
+          createTimelineEvent({
+            project: project._id,
+            actor: currentUser._id,
+            eventType: "manager_removed",
+            description: `${currentUser.name} removed ${mgr.name} from project "${project.title}"`,
+            metadata: { managerId: mgr._id, managerName: mgr.name },
+          })
+        )
+      );
+
+      const managerRemovedNotifPromises = removedManagers.map((mgr) =>
+        createNotification({
+          recipient: mgr._id,
+          project: project._id,
+          eventType: "manager_removed",
+          message: `You have been removed as a manager from project "${project.title}".`,
+          hrMessage: `${currentUser.name} removed ${mgr.name} as a manager from project "${project.title}".`,
+          metadata: { projectId: project._id, managerId: mgr._id },
+        })
+      );
+      await Promise.all(managerRemovedNotifPromises);
+    }
 
     const populated = await Project.findById(project._id)
-      .populate("assignedEmployees", "fullName email department")
-      .populate("assignedManagers", "fullName email")
-      .populate("createdBy", "fullName");
+      .populate("assignedEmployees", "name email department")
+      .populate("assignedManagers", "name email")
+      .populate("createdBy", "name");
 
     return res.status(200).json({ message: "Project updated", project: populated });
   } catch (err) {
@@ -511,8 +778,17 @@ exports.deleteProject = async (req, res) => {
       project: project._id,
       actor: currentUser._id,
       eventType: "project_deleted",
-      description: `${currentUser.fullName} deleted project "${project.title}"`,
+      description: `${currentUser.name} deleted project "${project.title}"`,
       metadata: { title: project.title },
+    });
+
+    await createNotification({
+      recipient: currentUser._id,
+      project: project._id,
+      eventType: "project_deleted",
+      message: `You deleted project "${project.title}".`,
+      hrMessage: `${currentUser.name} deleted project "${project.title}".`,
+      metadata: { title: project.title, actorId: currentUser._id },
     });
 
     return res.status(200).json({ message: "Project deleted successfully" });
