@@ -1,6 +1,13 @@
 const Project = require("../models/Project");
 const User = require("../models/User");
 const { createNotification, createTimelineEvent } = require("../utils/notifications");
+const transporter = require("../config/emailConfig");
+const {
+  addedToProjectEmail,
+  removedFromProjectEmail,
+  managerAddedEmail,
+  managerRemovedEmail,
+} = require("../config/emailTemplates");
 
 // ─── Helper: fetch project with access check ──────────────────────────────────
 const getEditableProject = async (projectId, user) => {
@@ -63,27 +70,67 @@ exports.addEmployees = async (req, res) => {
     project.assignedEmployees.push(...newEmployees.map((e) => e._id));
     await project.save();
 
-    // Notify each newly added employee + write timeline event
-    const promises = newEmployees.map((emp) =>
-      Promise.all([
-        createNotification({
-          recipient: emp._id,
-          project: project._id,
-          eventType: "employee_added",
-          message: `You have been added to project "${project.title}". Starts ${new Date(project.startDate).toDateString()}, ends ${new Date(project.endDate).toDateString()}.`,
-          metadata: { projectId: project._id },
-        }),
+    // ── Timeline events first, independently — so a notification failure
+    // can never silently swallow a missing timeline entry ─────────────────────
+    await Promise.all(
+      newEmployees.map((emp) =>
         createTimelineEvent({
           project: project._id,
           actor: currentUser._id,
           eventType: "employee_added",
-          // Use .name to match User schema
           description: `${currentUser.name} added ${emp.name} to project "${project.title}"`,
           metadata: { employeeId: emp._id, employeeName: emp.name },
-        }),
-      ])
+        })
+      )
     );
-    await Promise.all(promises);
+
+    // ── Notifications to each newly added employee — createNotification auto-CCs HR ─
+    const notifPromises = newEmployees.map((emp) =>
+      createNotification({
+        recipient: emp._id,
+        project: project._id,
+        eventType: "employee_added",
+        message: `You have been added to project "${project.title}". Starts ${new Date(project.startDate).toDateString()}, ends ${new Date(project.endDate).toDateString()}.`,
+        hrMessage: `${currentUser.name} added ${emp.name} to project "${project.title}".`,
+        metadata: { projectId: project._id, employeeId: emp._id, employeeName: emp.name },
+      })
+    );
+    await Promise.all(notifPromises);
+
+    // ── Notify the project's assigned managers ─────────────────────────────────
+    const employeeNames = newEmployees.map((e) => e.name).join(", ");
+    const managerNotifPromises = project.assignedManagers.map((mgrId) =>
+      createNotification({
+        recipient: mgrId,
+        project: project._id,
+        eventType: "employee_added",
+        message: `${newEmployees.length} employee(s) added to project "${project.title}": ${employeeNames}.`,
+        hrMessage: `${currentUser.name} added ${employeeNames} to project "${project.title}".`,
+        metadata: {
+          projectId: project._id,
+          employeeIds: newEmployees.map((e) => e._id),
+          employeeNames,
+          actorId: currentUser._id,
+        },
+      })
+    );
+    await Promise.all(managerNotifPromises);
+
+    // ── Emails to each newly added employee (fire-and-forget) ─────────────────
+    newEmployees.forEach((emp) => {
+      const { subject, html } = addedToProjectEmail(
+        emp.name,
+        project.title,
+        project.startDate,
+        project.endDate
+      );
+      transporter.sendMail({
+        from: `"BFSI Edge" <${process.env.EMAIL_USER}>`,
+        to: emp.email,
+        subject,
+        html,
+      }).catch((err) => console.error(`Email failed for ${emp.email}:`, err.message));
+    });
 
     const populated = await Project.findById(project._id).populate(
       "assignedEmployees",
@@ -130,25 +177,50 @@ exports.removeEmployee = async (req, res) => {
     );
     await project.save();
 
-    const employee = await User.findById(employeeId).select("name");
+    const employee = await User.findById(employeeId).select("name email");
 
-    await Promise.all([
-      // Notify the removed employee
+    // ── Timeline event first, independently ───────────────────────────────────
+    await createTimelineEvent({
+      project: project._id,
+      actor: currentUser._id,
+      eventType: "employee_removed",
+      description: `${currentUser.name} removed ${employee?.name || "an employee"} from project "${project.title}"`,
+      metadata: { employeeId },
+    });
+
+    // ── Notification to removed employee — HR auto-CC'd inside createNotification ─
+    await createNotification({
+      recipient: employeeId,
+      project: project._id,
+      eventType: "employee_removed",
+      message: `You have been removed from project "${project.title}".`,
+      hrMessage: `${currentUser.name} removed ${employee?.name || "an employee"} from project "${project.title}".`,
+      metadata: { projectId: project._id, employeeId, actorId: currentUser._id },
+    });
+
+    // ── Notify the project's assigned managers ─────────────────────────────────
+    const managerNotifPromises = project.assignedManagers.map((mgrId) =>
       createNotification({
-        recipient: employeeId,
+        recipient: mgrId,
         project: project._id,
         eventType: "employee_removed",
-        message: `You have been removed from project "${project.title}".`,
-        metadata: { projectId: project._id },
-      }),
-      createTimelineEvent({
-        project: project._id,
-        actor: currentUser._id,
-        eventType: "employee_removed",
-        description: `${currentUser.name} removed ${employee?.name || "an employee"} from project "${project.title}"`,
-        metadata: { employeeId },
-      }),
-    ]);
+        message: `${employee?.name || "An employee"} was removed from project "${project.title}".`,
+        hrMessage: `${currentUser.name} removed ${employee?.name || "an employee"} from project "${project.title}".`,
+        metadata: { projectId: project._id, employeeId, actorId: currentUser._id },
+      })
+    );
+    await Promise.all(managerNotifPromises);
+
+    // ── Email the removed employee (fire-and-forget) ──────────────────────────
+    if (employee?.email) {
+      const { subject, html } = removedFromProjectEmail(employee.name, project.title);
+      transporter.sendMail({
+        from: `"BFSI Edge" <${process.env.EMAIL_USER}>`,
+        to: employee.email,
+        subject,
+        html,
+      }).catch((err) => console.error(`Email failed for ${employee.email}:`, err.message));
+    }
 
     return res.status(200).json({ message: "Employee removed from project" });
   } catch (err) {
@@ -156,6 +228,8 @@ exports.removeEmployee = async (req, res) => {
     return res.status(500).json({ message: "Server error", error: err.message });
   }
 };
+
+// addManagers and removeManager are unchanged
 
 // =============================================================================
 // @desc    Add managers to a project
@@ -207,25 +281,47 @@ exports.addManagers = async (req, res) => {
     project.assignedManagers.push(...newManagers.map((m) => m._id));
     await project.save();
 
-    const promises = newManagers.map((mgr) =>
-      Promise.all([
-        createNotification({
-          recipient: mgr._id,
-          project: project._id,
-          eventType: "manager_added",
-          message: `You have been assigned as manager of project "${project.title}".`,
-          metadata: { projectId: project._id },
-        }),
+    // ── Timeline events first, independently ──────────────────────────────────
+    await Promise.all(
+      newManagers.map((mgr) =>
         createTimelineEvent({
           project: project._id,
           actor: currentUser._id,
           eventType: "manager_added",
           description: `${currentUser.name} added ${mgr.name} as manager of "${project.title}"`,
           metadata: { managerId: mgr._id, managerName: mgr.name },
-        }),
-      ])
+        })
+      )
     );
-    await Promise.all(promises);
+
+    // ── Notifications — createNotification auto-CCs HR, no manual loop needed ─
+    const notifPromises = newManagers.map((mgr) =>
+      createNotification({
+        recipient: mgr._id,
+        project: project._id,
+        eventType: "manager_added",
+        message: `You have been assigned as manager of project "${project.title}".`,
+        hrMessage: `${currentUser.name} added ${mgr.name} as manager of project "${project.title}".`,
+        metadata: { projectId: project._id, managerId: mgr._id, managerName: mgr.name },
+      })
+    );
+    await Promise.all(notifPromises);
+
+    // ── Emails to each newly added manager (fire-and-forget) ──────────────────
+    newManagers.forEach((mgr) => {
+      const { subject, html } = managerAddedEmail(
+        mgr.name,
+        project.title,
+        project.startDate,
+        project.endDate
+      );
+      transporter.sendMail({
+        from: `"BFSI Edge" <${process.env.EMAIL_USER}>`,
+        to: mgr.email,
+        subject,
+        html,
+      }).catch((err) => console.error(`Email failed for ${mgr.email}:`, err.message));
+    });
 
     const populated = await Project.findById(project._id).populate(
       "assignedManagers",
@@ -283,25 +379,37 @@ exports.removeManager = async (req, res) => {
     );
     await project.save();
 
-    const manager = await User.findById(managerId).select("name");
+    const manager = await User.findById(managerId).select("name email");
 
-    await Promise.all([
-      // Notify the removed manager
-      createNotification({
-        recipient: managerId,
-        project: project._id,
-        eventType: "manager_removed",
-        message: `You have been removed as manager of project "${project.title}".`,
-        metadata: { projectId: project._id },
-      }),
-      createTimelineEvent({
-        project: project._id,
-        actor: currentUser._id,
-        eventType: "manager_removed",
-        description: `${currentUser.name} removed ${manager?.name || "a manager"} from project "${project.title}"`,
-        metadata: { managerId },
-      }),
-    ]);
+    // ── Timeline event first, independently ───────────────────────────────────
+    await createTimelineEvent({
+      project: project._id,
+      actor: currentUser._id,
+      eventType: "manager_removed",
+      description: `${currentUser.name} removed ${manager?.name || "a manager"} from project "${project.title}"`,
+      metadata: { managerId },
+    });
+
+    // ── Notification to removed manager — HR auto-CC'd inside createNotification ─
+    await createNotification({
+      recipient: managerId,
+      project: project._id,
+      eventType: "manager_removed",
+      message: `You have been removed as manager of project "${project.title}".`,
+      hrMessage: `${currentUser.name} removed ${manager?.name || "a manager"} as manager of project "${project.title}".`,
+      metadata: { projectId: project._id, managerId, actorId: currentUser._id },
+    });
+
+    // ── Email the removed manager (fire-and-forget) ───────────────────────────
+    if (manager?.email) {
+      const { subject, html } = managerRemovedEmail(manager.name, project.title);
+      transporter.sendMail({
+        from: `"BFSI Edge" <${process.env.EMAIL_USER}>`,
+        to: manager.email,
+        subject,
+        html,
+      }).catch((err) => console.error(`Email failed for ${manager.email}:`, err.message));
+    }
 
     return res.status(200).json({ message: "Manager removed from project" });
   } catch (err) {
