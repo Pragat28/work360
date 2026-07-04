@@ -96,6 +96,7 @@ exports.createSubmission = async (req, res) => {
           fileCount: files.length,
           isLate,
         },
+        ccHrAdmins: false, // recipients already includes HR admins via getNotifyRecipients
         emailFn: async () => {
           const { subject, html } = subtaskSubmissionEmail(
             recipient.name,
