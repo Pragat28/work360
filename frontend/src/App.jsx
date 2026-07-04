@@ -8,6 +8,8 @@ import ForgotPasswordPage from './pages/ForgotPasswordPage';
 import ResetPasswordPage from './pages/ResetPasswordPage';
 import VerifyEmailPage from './pages/VerifyEmailPage';
 
+// Route guard
+import ProtectedRoute from './components/ProtectedRoute';
 
 //Manager pages
 import ManagerDashboard from './pages/manager/DashboardPage';
@@ -33,8 +35,9 @@ import HRProfilePage from './pages/hr/ProfilePage';
 import EmployeeLayout from './pages/employee/LayoutPage';
 import EmployeeDashboard from './pages/employee/EmployeeDashboard';
 import EmployeeProjectsPage from './pages/employee/ProjectsPage';
-import EmployeeNotificationsPage from './pages/employee/NotificationsPage';
+import EmployeeNotificationsPage from './pages/employee/NotificationPage';
 import EmployeeTimelinePage from './pages/employee/TimelinePage';
+import ProfileSettingsPage from './pages/ProfileSettingsPage';
 
 function App() {
   return (
@@ -49,31 +52,51 @@ function App() {
         <Route path="/reset-password/:token" element={<ResetPasswordPage />} />
         <Route path="/verify-email/:token" element={<VerifyEmailPage />} />
 
-         <Route path="/employee" element={<EmployeeLayout user={user} />}>
+        <Route
+          path="/employee"
+          element={
+            <ProtectedRoute allowedRoles={['employee']}>
+              <EmployeeLayout />
+            </ProtectedRoute>
+          }
+        >
           <Route path="dashboard"     element={<EmployeeDashboard />} />
           <Route path="projects"      element={<EmployeeProjectsPage />} />
           <Route path="notifications" element={<EmployeeNotificationsPage />} />
           <Route path="timeline"      element={<EmployeeTimelinePage />} />
-           <Route path="profile"       element={<ProfileSettingsPage />} />   
+          <Route path="profile"       element={<ProfileSettingsPage />} />
         </Route>
 
-        <Route path="/manager" element={<ManagerLayout />}>
+        <Route
+          path="/manager"
+          element={
+            <ProtectedRoute allowedRoles={['manager']}>
+              <ManagerLayout />
+            </ProtectedRoute>
+          }
+        >
           <Route path="dashboard"     element={<ManagerDashboard />} />
           <Route path="projects"      element={<ManagerProjectsPage />} />
-          <Route path="my-tasks"      element={<ManagerMyTasksPage />} />
           <Route path="projects/:id"  element={<ProjectDetailPage />} />
           <Route path="notifications" element={<ManagerNotificationsPage />} />
           <Route path="timeline"      element={<ManagerTimelinePage />} />
           <Route path="profile"       element={<ManagerProfilePage />} />
         </Route>
 
-        <Route path="/hr" element={<HRLayout />}>
+        <Route
+          path="/hr"
+          element={
+            <ProtectedRoute allowedRoles={['hr_admin']}>
+              <HRLayout />
+            </ProtectedRoute>
+          }
+        >
           <Route path="dashboard"     element={<HRDashboard />} />
           <Route path="projects"      element={<HRProjectsPage />} />
           <Route path="projects/:id"  element={<HRProjectDetailsPage />} />
           <Route path="notifications" element={<HRNotificationsPage />} />
           <Route path="timeline"      element={<HRTimelinePage />} />
-          <Route path="people"         element={<PeopleManagementPage />} />
+          <Route path="people"        element={<PeopleManagementPage />} />
           <Route path="pending-users" element={<PendingUsersPage />} />
           <Route path="profile"       element={<HRProfilePage />} />
         </Route>
