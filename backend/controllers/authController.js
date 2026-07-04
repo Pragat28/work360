@@ -7,7 +7,6 @@ const {
   verificationEmail,
   welcomeEmail,
   resetPasswordEmail,
-  accountLockedEmail,
   newUserPendingEmail
 } = require('../config/emailTemplates');
 
@@ -16,63 +15,118 @@ const register = async (req, res) => {
   try {
     const { name, email, password } = req.body;
 
-    // Check if user already exists
-    const existingUser = await User.findOne({ email });
-    if (existingUser) {
-      return res.status(400).json({
-        message: '❌ User already exists with this email'
-      });
-    }
+    console.log('📩 Register attempt for:', email);
 
-    // Password must be at least 8 characters and include a number
     if (password.length < 8 || !/\d/.test(password)) {
       return res.status(400).json({
         message: '❌ Password must be at least 8 characters and include a number'
       });
     }
 
-    // Encrypt password
-    const hashedPassword = await bcrypt.hash(password, 10);
+    const existingUser = await User.findOne({ email });
 
-    // Generate verification token
+    if (existingUser) {
+      if (existingUser.isVerified) {
+        return res.status(400).json({
+          message: '❌ An active account already exists with this email'
+        });
+      }
+
+      const verificationToken = crypto.randomBytes(32).toString('hex');
+      existingUser.name = name;
+      existingUser.password = await bcrypt.hash(password, 10);
+      existingUser.verificationToken = verificationToken;
+      existingUser.verificationTokenExpire = new Date(Date.now() + 24 * 60 * 60 * 1000);
+      await existingUser.save();
+
+      const { subject, html } = verificationEmail(name, verificationToken);
+      await transporter.sendMail({
+        from: `"BFSI Edge" <${process.env.EMAIL_USER}>`,
+        to: email,
+        subject,
+        html
+      });
+
+      return res.status(200).json({
+        message: '✅ A new verification link has been sent to your email'
+      });
+    }
+
+    console.log('👤 Creating new user...');
+    const hashedPassword = await bcrypt.hash(password, 10);
     const verificationToken = crypto.randomBytes(32).toString('hex');
 
-    // Create user
     const user = await User.create({
       name,
       email,
       password: hashedPassword,
       verificationToken,
+      verificationTokenExpire: new Date(Date.now() + 24 * 60 * 60 * 1000),
       role: 'pending',
       isVerified: false
     });
+    console.log('✅ User created in DB:', user._id);
 
-    // Send verification email to user
-    const { subject, html } = verificationEmail(name, verificationToken);
-    await transporter.sendMail({
-      from: `"BFSI Edge" <${process.env.EMAIL_USER}>`,
-      to: email,
-      subject,
-      html
-    });
-
-    // Notify all HR Admins about new pending user
-    const hrAdmins = await User.find({ role: 'hr_admin' });
-    for (const admin of hrAdmins) {
-      const { subject, html } = newUserPendingEmail(admin.name, name, email);
-      await transporter.sendMail({
+    // ✅ Send verification email to employee
+    console.log('📧 Sending verification email to:', email);
+    try {
+      const { subject, html } = verificationEmail(name, verificationToken);
+      const info = await transporter.sendMail({
         from: `"BFSI Edge" <${process.env.EMAIL_USER}>`,
-        to: admin.email,
+        to: email,
         subject,
         html
       });
+      console.log('✅ Verification email sent:', info.messageId);
+    } catch (empEmailErr) {
+      console.error('❌ Verification email FAILED:', empEmailErr.message);
     }
 
+    // ✅ Send pending notification to all HR admins
+    console.log('📧 Sending HR notifications...');
+    try {
+      const hrAdmins = await User.find({ role: 'hr_admin' });
+      console.log('👥 HR admins found:', hrAdmins.length);
+      for (const admin of hrAdmins) {
+        const { subject, html } = newUserPendingEmail(admin.name, name, email);
+        await transporter.sendMail({
+          from: `"BFSI Edge" <${process.env.EMAIL_USER}>`,
+          to: admin.email,
+          subject,
+          html
+        });
+        console.log('✅ HR email sent to:', admin.email);
+      }
+    } catch (hrErr) {
+      console.error('❌ HR email FAILED:', hrErr.message);
+    }
+
+    // ✅ Send pending notification to all managers
+    console.log('📧 Sending manager notifications...');
+    try {
+      const managers = await User.find({ role: 'manager' });
+      console.log('👥 Managers found:', managers.length);
+      for (const manager of managers) {
+        const { subject, html } = newUserPendingEmail(manager.name, name, email);
+        await transporter.sendMail({
+          from: `"BFSI Edge" <${process.env.EMAIL_USER}>`,
+          to: manager.email,
+          subject,
+          html
+        });
+        console.log('✅ Manager email sent to:', manager.email);
+      }
+    } catch (managerErr) {
+      console.error('❌ Manager email FAILED:', managerErr.message);
+    }
+
+    console.log('✅ Registration complete for:', email);
     res.status(201).json({
       message: '✅ Registration successful! Please check your email to verify your account.'
     });
 
   } catch (error) {
+    console.error('❌ Registration crashed:', error.message);
     res.status(500).json({
       message: '❌ Registration failed',
       error: error.message
@@ -86,9 +140,10 @@ const verifyEmail = async (req, res) => {
     const { token } = req.params;
 
     const user = await User.findOne({ verificationToken: token });
+
     if (!user) {
       return res.status(400).json({
-        message: '❌ Invalid or expired verification link'
+        message: '❌ Verification link is invalid — please register again or request a new link'
       });
     }
 
@@ -108,6 +163,50 @@ const verifyEmail = async (req, res) => {
   }
 };
 
+// RESEND VERIFICATION EMAIL
+const resendVerification = async (req, res) => {
+  try {
+    const { email } = req.body;
+
+    const user = await User.findOne({ email });
+
+    if (!user) {
+      return res.status(404).json({
+        message: '❌ No account found with this email address'
+      });
+    }
+
+    if (user.isVerified) {
+      return res.status(400).json({
+        message: '❌ This account is already verified — please login'
+      });
+    }
+
+    const verificationToken = crypto.randomBytes(32).toString('hex');
+    user.verificationToken = verificationToken;
+    user.verificationTokenExpire = new Date(Date.now() + 24 * 60 * 60 * 1000);
+    await user.save();
+
+    const { subject, html } = verificationEmail(user.name, verificationToken);
+    await transporter.sendMail({
+      from: `"BFSI Edge" <${process.env.EMAIL_USER}>`,
+      to: user.email,
+      subject,
+      html
+    });
+
+    res.status(200).json({
+      message: '✅ Verification email resent — please check your inbox'
+    });
+
+  } catch (error) {
+    res.status(500).json({
+      message: '❌ Failed to resend verification email',
+      error: error.message
+    });
+  }
+};
+
 // LOGIN
 const login = async (req, res) => {
   try {
@@ -120,14 +219,12 @@ const login = async (req, res) => {
       });
     }
 
-    // Check if email is verified
     if (!user.isVerified) {
       return res.status(400).json({
         message: '❌ Please verify your email first — check your inbox'
       });
     }
 
-    // Check if account is locked
     if (user.lockUntil && user.lockUntil > Date.now()) {
       const minutesLeft = Math.ceil((user.lockUntil - Date.now()) / 60000);
       return res.status(400).json({
@@ -135,28 +232,20 @@ const login = async (req, res) => {
       });
     }
 
-    // Check password
     const isMatch = await bcrypt.compare(password, user.password);
     if (!isMatch) {
-      // Increment failed attempts
       user.failedLoginAttempts += 1;
 
-      // Lock account after 5 failed attempts
       if (user.failedLoginAttempts >= 5) {
-        user.lockUntil = new Date(Date.now() + 15 * 60 * 1000); // 15 minutes
+        // ── Auto-lock: 15-minute block, no email, no reset-password link.
+        //    The lock expires on its own via lockUntil — we don't want to
+        //    hand the user (or an attacker) a password-reset path as a
+        //    way to interact with the account during the lock window. ──
+        user.lockUntil = new Date(Date.now() + 15 * 60 * 1000);
         await user.save();
 
-        // Send account locked email
-        const { subject, html } = accountLockedEmail(user.name);
-        await transporter.sendMail({
-          from: `"BFSI Edge" <${process.env.EMAIL_USER}>`,
-          to: user.email,
-          subject,
-          html
-        });
-
         return res.status(400).json({
-          message: '❌ Account locked for 15 minutes due to 5 failed attempts — check your email'
+          message: '❌ Account locked for 15 minutes due to 5 failed attempts. Please try again later.'
         });
       }
 
@@ -166,19 +255,18 @@ const login = async (req, res) => {
       });
     }
 
-    // Check if role is still pending
     if (user.role === 'pending') {
       return res.status(400).json({
         message: '❌ Your account is pending — HR Admin has not assigned your role yet'
       });
     }
 
-    // Reset failed attempts on successful login
-    user.failedLoginAttempts = 0;
-    user.lockUntil = undefined;
-    await user.save();
+    if (!user.lockUntil || user.lockUntil < Date.now()) {
+      user.failedLoginAttempts = 0;
+      user.lockUntil = undefined;
+      await user.save();
+    }
 
-    // Create token
     const token = jwt.sign(
       { id: user._id, role: user.role },
       process.env.JWT_SECRET,
@@ -192,7 +280,8 @@ const login = async (req, res) => {
         id: user._id,
         name: user.name,
         email: user.email,
-        role: user.role
+        role: user.role,
+        department: user.department || null  // ✅ ADDED
       }
     });
 
@@ -216,13 +305,22 @@ const forgotPassword = async (req, res) => {
       });
     }
 
-    // Generate reset token
+    // ── Block reset requests while the account is auto-locked. Since the
+    //    lockout itself no longer emails a reset link, this closes the
+    //    other door too — a locked-out user (or attacker) can't route
+    //    around the 15-minute block by requesting one manually either. ──
+    if (user.lockUntil && user.lockUntil > Date.now()) {
+      const minutesLeft = Math.ceil((user.lockUntil - Date.now()) / 60000);
+      return res.status(400).json({
+        message: `❌ Account is locked due to failed login attempts. Try again in ${minutesLeft} minutes`
+      });
+    }
+
     const resetToken = crypto.randomBytes(32).toString('hex');
     user.resetPasswordToken = resetToken;
-    user.resetPasswordExpire = new Date(Date.now() + 60 * 60 * 1000); // 1 hour
+    user.resetPasswordExpire = new Date(Date.now() + 60 * 60 * 1000);
     await user.save();
 
-    // Send reset email
     const { subject, html } = resetPasswordEmail(user.name, resetToken);
     await transporter.sendMail({
       from: `"BFSI Edge" <${process.env.EMAIL_USER}>`,
@@ -260,7 +358,6 @@ const resetPassword = async (req, res) => {
       });
     }
 
-    // Password must be at least 8 characters and include a number
     if (password.length < 8 || !/\d/.test(password)) {
       return res.status(400).json({
         message: '❌ Password must be at least 8 characters and include a number'
@@ -271,11 +368,10 @@ const resetPassword = async (req, res) => {
     user.resetPasswordToken = undefined;
     user.resetPasswordExpire = undefined;
     user.failedLoginAttempts = 0;
-    user.lockUntil = undefined;
     await user.save();
 
     res.status(200).json({
-      message: '✅ Password reset successful — you can now login with your new password'
+      message: '✅ Password reset successful — please wait for your lock to expire before logging in'
     });
 
   } catch (error) {
@@ -285,16 +381,22 @@ const resetPassword = async (req, res) => {
     });
   }
 };
+
+// UPDATE PROFILE
 const updateProfile = async (req, res) => {
   try {
     const { name } = req.body;
     await User.findByIdAndUpdate(req.user.id, { name });
     res.status(200).json({ message: '✅ Name updated successfully' });
   } catch (error) {
-    res.status(500).json({ message: '❌ Failed to update name', error: error.message });
+    res.status(500).json({
+      message: '❌ Failed to update name',
+      error: error.message
+    });
   }
 };
 
+// CHANGE PASSWORD
 const changePassword = async (req, res) => {
   try {
     const { currentPassword, newPassword } = req.body;
@@ -302,7 +404,9 @@ const changePassword = async (req, res) => {
 
     const isMatch = await bcrypt.compare(currentPassword, user.password);
     if (!isMatch) {
-      return res.status(400).json({ message: '❌ Current password is incorrect' });
+      return res.status(400).json({
+        message: '❌ Current password is incorrect'
+      });
     }
 
     if (newPassword.length < 8 || !/\d/.test(newPassword)) {
@@ -316,8 +420,20 @@ const changePassword = async (req, res) => {
 
     res.status(200).json({ message: '✅ Password changed successfully' });
   } catch (error) {
-    res.status(500).json({ message: '❌ Failed to change password', error: error.message });
+    res.status(500).json({
+      message: '❌ Failed to change password',
+      error: error.message
+    });
   }
 };
 
-module.exports = { register, verifyEmail, login, forgotPassword, resetPassword, updateProfile, changePassword };
+module.exports = {
+  register,
+  verifyEmail,
+  resendVerification,
+  login,
+  forgotPassword,
+  resetPassword,
+  updateProfile,
+  changePassword
+};
