@@ -1,4 +1,4 @@
-const TimelineEvent = require("../models/Timelineevent");
+const TimelineEvent = require("../models/TimelineEvent");
 const Project = require("../models/Project");
 const User = require("../models/User");
 const Subtask = require("../models/Subtask");
