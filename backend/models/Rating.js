@@ -14,11 +14,13 @@ const ratingSchema = new mongoose.Schema(
       required: true,
     },
 
-    employee: {
-      type: mongoose.Schema.Types.ObjectId,
-      ref: "User",
-      required: true,
-    },
+    // All employees assigned to the subtask at the time of rating
+    employees: [
+      {
+        type: mongoose.Schema.Types.ObjectId,
+        ref: "User",
+      },
+    ],
 
     ratedBy: {
       type: mongoose.Schema.Types.ObjectId,
@@ -64,9 +66,10 @@ const ratingSchema = new mongoose.Schema(
   { timestamps: true }
 );
 
+// One rating document per subtask — unique index stays as-is
 ratingSchema.index({ subtask: 1 }, { unique: true });
 ratingSchema.index({ project: 1, isArchived: 1 });
-ratingSchema.index({ employee: 1, isArchived: 1 });
+ratingSchema.index({ employees: 1, isArchived: 1 }); // updated from employee → employees
 ratingSchema.index({ ratedBy: 1 });
 
 module.exports = mongoose.model("Rating", ratingSchema);
