@@ -10,12 +10,16 @@ const getHrAdminIds = async () => {
 
 // ─── createNotification ───────────────────────────────────────────────────────
 // Creates the primary notification, optionally fires an email via emailFn,
-// and auto-CCs all HR admins.
+// and (by default) auto-CCs all HR admins.
 //
 // `message` is what the primary `recipient` sees — often first-person
 // ("You have been assigned..."). `hrMessage`, if provided, is what HR sees
 // instead — third-person, audit-style ("X was assigned to..."). If omitted,
 // HR falls back to the same `message` as the primary recipient.
+//
+// Set `ccHrAdmins: false` when the caller's own recipient list ALREADY
+// includes HR admins (e.g. via getNotifyRecipients()) — otherwise HR ends
+// up getting duplicated/tripled notifications for the same event.
 //
 // Usage:
 //   await createNotification({
@@ -28,6 +32,7 @@ const getHrAdminIds = async () => {
 //     metadata: { stars: 4 },   // optional extra data
 //     sendEmail: true,          // default true
 //     emailFn: () => sendSubtaskCompletedEmail(...),  // optional mailer call
+//     ccHrAdmins: true,         // default true — set false if recipient list already includes HR
 //   });
 const createNotification = async ({
   recipient,
@@ -39,6 +44,7 @@ const createNotification = async ({
   metadata = {},
   sendEmail = true,
   emailFn = null,
+  ccHrAdmins = true,
 }) => {
   let notification;
   try {
@@ -69,25 +75,29 @@ const createNotification = async ({
   }
 
   // ── Auto-CC all HR admins, skipping the original recipient if they're HR ────
-  try {
-    const hrAdminIds = await getHrAdminIds();
-    const recipientStr = recipient?.toString();
-    const ccIds = hrAdminIds.filter((id) => id !== recipientStr);
+  // Skipped entirely when ccHrAdmins is false — used when the caller already
+  // looped over a recipient list that includes HR admins, to avoid duplicates.
+  if (ccHrAdmins) {
+    try {
+      const hrAdminIds = await getHrAdminIds();
+      const recipientStr = recipient?.toString();
+      const ccIds = hrAdminIds.filter((id) => id !== recipientStr);
 
-    if (ccIds.length) {
-      await Notification.insertMany(
-        ccIds.map((hrId) => ({
-          recipient: hrId,
-          project,
-          subtask,
-          eventType,
-          message: hrMessage || message,
-          metadata,
-        }))
-      );
+      if (ccIds.length) {
+        await Notification.insertMany(
+          ccIds.map((hrId) => ({
+            recipient: hrId,
+            project,
+            subtask,
+            eventType,
+            message: hrMessage || message,
+            metadata,
+          }))
+        );
+      }
+    } catch (err) {
+      console.error(`createNotification HR-CC error for ${eventType}:`, err.message);
     }
-  } catch (err) {
-    console.error(`createNotification HR-CC error for ${eventType}:`, err.message);
   }
 
   return notification;
