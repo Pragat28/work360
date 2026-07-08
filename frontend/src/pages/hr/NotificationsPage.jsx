@@ -50,16 +50,19 @@ const markAllReadAPI = async () => {
 
 // ─── Config ───────────────────────────────────────────────────────────────────
 const typeConfig = {
+  subtask_created:        { bg: "#e0f2fe", color: "#0284c7", icon: "📝", label: "Created" },
   subtask_assigned:    { bg: "#e0e7ff", color: "#4f46e5", icon: "📌", label: "Assigned" },
   subtask_started:     { bg: "#dbeafe", color: "#2563eb", icon: "▶",  label: "Started" },
   subtask_submission:  { bg: "#e0e7ff", color: "#4f46e5", icon: "📤", label: "Submission" },
   subtask_completed:   { bg: "#dcfce7", color: "#16a34a", icon: "✓",  label: "Completed" },
   subtask_overdue:     { bg: "#fef2f2", color: "#ef4444", icon: "⚠️", label: "Overdue" },
+  subtask_edited:        { bg: "#fef3c7", color: "#b45309", icon: "✏️", label: "Edited" },
 
   project_created:     { bg: "#ecfdf5", color: "#059669", icon: "🆕", label: "Project created" },
   project_edited:      { bg: "#f1f5f9", color: "#475569", icon: "✏️", label: "Project edited" },
   project_completed:   { bg: "#f3e8ff", color: "#7c3aed", icon: "🏁", label: "Project done" },
   project_deleted:     { bg: "#fef2f2", color: "#b91c1c", icon: "🗑",  label: "Project deleted" },
+  project_assigned:      { bg: "#dbeafe", color: "#2563eb", icon: "📂", label: "Project assigned" },
 
   employee_added:      { bg: "#dcfce7", color: "#16a34a", icon: "➕", label: "Employee added" },
   employee_removed:    { bg: "#fef2f2", color: "#ef4444", icon: "➖", label: "Employee removed" },
@@ -68,6 +71,9 @@ const typeConfig = {
 
   rating_submitted:    { bg: "#fff7ed", color: "#ea580c", icon: "⭐", label: "Rating" },
   comment_posted:      { bg: "#fef9c3", color: "#ca8a04", icon: "💬", label: "Comment" },
+
+  user_deleted:         { bg: "#fee2e2", color: "#b91c1c", icon: "🗑️", label: "User deleted" },
+  user_dept_changed:    { bg: "#e0f2fe", color: "#0284c7", icon: "🔄", label: "Department change" },
 
   role_assigned:       { bg: "#ede9fe", color: "#7c3aed", icon: "🔑", label: "Role assigned" },
   role_changed:        { bg: "#ede9fe", color: "#7c3aed", icon: "🔑", label: "Role changed" },
@@ -398,13 +404,17 @@ export default function HRNotificationsPage() {
           >
             <option value="all">All types</option>
             <optgroup label="Subtasks">
+              <option value="subtask_created">Created</option>
               <option value="subtask_started">Started</option>
               <option value="subtask_submission">Submission</option>
               <option value="subtask_completed">Completed</option>
               <option value="subtask_overdue">Overdue</option>
+              <option value="subtask_assigned">Assigned</option>
+              <option value="subtask_edited">Edited</option>
             </optgroup>
             <optgroup label="Projects">
               <option value="project_created">Project created</option>
+              <option value="project_assigned">Project assigned</option>
               <option value="project_edited">Project edited</option>
               <option value="project_completed">Project done</option>
               <option value="project_deleted">Project deleted</option>
@@ -414,6 +424,8 @@ export default function HRNotificationsPage() {
               <option value="employee_removed">Employee removed</option>
               <option value="manager_added">Manager added</option>
               <option value="manager_removed">Manager removed</option>
+              <option value="user_deleted">User deleted</option>
+              <option value="user_dept_changed">Department change</option>
             </optgroup>
             <optgroup label="Feedback">
               <option value="rating_submitted">Ratings</option>
