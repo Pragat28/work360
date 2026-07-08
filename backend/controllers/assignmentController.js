@@ -299,7 +299,7 @@ exports.addManagers = async (req, res) => {
       createNotification({
         recipient: mgr._id,
         project: project._id,
-        eventType: "manager_added",
+        eventType: "project_assigned",
         message: `You have been assigned as manager of project "${project.title}".`,
         hrMessage: `${currentUser.name} added ${mgr.name} as manager of project "${project.title}".`,
         metadata: { projectId: project._id, managerId: mgr._id, managerName: mgr.name },
