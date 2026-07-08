@@ -138,6 +138,32 @@ exports.addComment = async (req, res) => {
     );
     await Promise.all(notifPromises);
 
+    // ── Notify project managers too — createNotification only auto-CCs HR,
+    // not managers, so without this loop a manager who isn't the comment's
+    // author never hears about it (e.g. HR commented, or a co-manager did).
+    const populatedProject = await Project.findById(project._id).populate("assignedManagers", "name email");
+    const managersToNotify = populatedProject.assignedManagers.filter(
+      (mgr) => mgr._id.toString() !== currentUser._id.toString()
+    );
+
+    const managerNotifPromises = managersToNotify.map((mgr) =>
+      createNotification({
+        recipient: mgr._id,
+        project: project._id,
+        subtask: subtask._id,
+        eventType: "comment_posted",
+        message: `${currentUser.name} left a remark on "${subtask.name}": "${preview}"`,
+        metadata: {
+          commentId: comment._id,
+          authorName: currentUser.name,
+          subtaskName: subtask.name,
+        },
+        sendEmail: false, // email is going to employees only; managers get in-app only
+        ccHrAdmins: false, // HR already covered by the employee notification loop above
+      })
+    );
+    await Promise.all(managerNotifPromises);
+
     // Email each assigned employee — direct transporter call, fire-and-forget
     employees.forEach((emp) => {
       const { subject, html } = remarkPostedEmail(
