@@ -173,7 +173,7 @@ exports.addComment = async (req, res) => {
         trimmedText
       );
       transporter.sendMail({
-        from: `"Work360" <${process.env.EMAIL_USER}>`,
+        from: `"BFSI Edge" <${process.env.EMAIL_USER}>`,
         to: emp.email,
         subject,
         html,
