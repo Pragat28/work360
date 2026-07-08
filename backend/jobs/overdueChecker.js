@@ -40,7 +40,15 @@ const checkOverdueSubtasks = async () => {
     if (!project) continue;
 
     const hrAdmins = await User.find({ role: "hr_admin" });
-    const recipients = [...updated.assignedTo, ...hrAdmins.map((u) => u._id)];
+
+    // Combine assignees, HR admins, and project managers, then dedupe —
+    // a manager could also be an HR admin, or overlap with assignedTo.
+    const recipientIds = [
+      ...updated.assignedTo,
+      ...hrAdmins.map((u) => u._id),
+      ...project.assignedManagers,
+    ];
+    const recipients = [...new Set(recipientIds.map((id) => id.toString()))];
 
     await Promise.all(
       recipients.map((userId) =>
@@ -51,12 +59,15 @@ const checkOverdueSubtasks = async () => {
           eventType: "subtask_overdue",
           message: `"${updated.name}" in project "${project.title}" is now overdue. No action was taken before the deadline.`,
           metadata: { subtaskName: updated.name },
-          ccHrAdmins: false
+          ccHrAdmins: false, // already merged HR admins into recipients above
         })
       )
     );
 
-    const employees = await User.find({ _id: { $in: updated.assignedTo } }).select("name email");
+    // Email goes to assignees + managers (HR admins are in-app only here —
+    // remove assignedManagers from this list if managers shouldn't get emails)
+    const notifiedUserIds = [...updated.assignedTo, ...project.assignedManagers];
+    const employees = await User.find({ _id: { $in: notifiedUserIds } }).select("name email");
     employees.forEach((emp) => {
       const { subject, html } = subtaskOverdueEmail(emp.name, updated.name, project.title, updated.dueDate);
       transporter.sendMail({
