@@ -358,6 +358,61 @@ const subtaskSubmissionEmail = (recipientName, employeeName, subtaskName, projec
   `
 });
 
+const departmentChangedEmail = (recipientName, employeeName, oldDepartment, newDepartment, changedBy) => ({
+  subject: `BFSI Edge — Department updated for ${employeeName}`,
+  html: `
+    <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto; padding: 20px; border: 1px solid #e0e0e0; border-radius: 8px;">
+      <h2 style="color: #7c3aed;">Department Changed</h2>
+      <p>Hi ${recipientName},</p>
+      <p><strong>${employeeName}</strong>'s department has been updated.</p>
+      <div style="background: #f5f5f5; padding: 15px; border-radius: 6px; margin: 20px 0;">
+        <p><strong>Previous Department:</strong> ${oldDepartment}</p>
+        <p><strong>New Department:</strong> ${newDepartment}</p>
+        ${changedBy ? `<p><strong>Updated by:</strong> ${changedBy}</p>` : ''}
+      </div>
+      <a href="${process.env.FRONTEND_URL}/login" style="background: #7c3aed; color: white; padding: 12px 24px; border-radius: 6px; text-decoration: none;">View Profile</a>
+      <p style="color: #999; font-size: 12px; margin-top: 30px;">BFSI Edge | <a href="${process.env.FRONTEND_URL}/profile">Manage Notifications</a></p>
+    </div>
+  `
+});
+
+const departmentReviewReminderEmail = (hrName, employeeName, currentDepartment, daysLeft, dueDate) => ({
+  subject: `BFSI Edge — Department review due in ${daysLeft} day${daysLeft > 1 ? 's' : ''} for ${employeeName}`,
+  html: `
+    <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto; padding: 20px; border: 1px solid #e0e0e0; border-radius: 8px;">
+      <h2 style="color: #7c3aed;">Department Review Reminder</h2>
+      <p>Hi ${hrName},</p>
+      <p><strong>${employeeName}</strong> is due for their scheduled 3-month department review.</p>
+      <div style="background: #f5f5f5; padding: 15px; border-radius: 6px; margin: 20px 0;">
+        <p><strong>Current Department:</strong> ${currentDepartment}</p>
+        <p><strong>Review Due:</strong> ${dueDate}</p>
+        <p><strong>Time Remaining:</strong> ${daysLeft} day${daysLeft > 1 ? 's' : ''}</p>
+      </div>
+      <a href="${process.env.FRONTEND_URL}/login" style="background: #7c3aed; color: white; padding: 12px 24px; border-radius: 6px; text-decoration: none;">Review Now</a>
+      <p style="color: #999; font-size: 12px; margin-top: 30px;">BFSI Edge | <a href="${process.env.FRONTEND_URL}/profile">Manage Notifications</a></p>
+    </div>
+  `
+});
+
+const userDeletedEmail = (recipientName, deletedUserName, deletedUserRole, deletedByName) => ({
+  subject: `BFSI Edge — User Removed: ${deletedUserName}`,
+  html: `
+    <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto; padding: 20px; border: 1px solid #e0e0e0; border-radius: 8px;">
+      <h2 style="color: #b91c1c;">User Account Removed</h2>
+      <p>Hi ${recipientName},</p>
+      <p><strong>${deletedUserName}</strong> has been removed from BFSI Edge Workflow360${deletedByName ? ` by ${deletedByName}` : ''}.</p>
+      <div style="background: #f5f5f5; padding: 15px; border-radius: 6px; margin: 20px 0;">
+        <p><strong>Name:</strong> ${deletedUserName}</p>
+        <p><strong>Role:</strong> ${deletedUserRole}</p>
+        <p><strong>Removed By:</strong> ${deletedByName || 'System'}</p>
+      </div>
+      <p>Any projects, subtasks, or ratings previously associated with this user remain in the system for audit purposes.</p>
+      <a href="${process.env.FRONTEND_URL}/login" style="background: #b91c1c; color: white; padding: 12px 24px; border-radius: 6px; text-decoration: none;">View People Management</a>
+      <p style="color: #999; font-size: 12px; margin-top: 30px;">BFSI Edge | <a href="${process.env.FRONTEND_URL}/profile">Manage Notifications</a></p>
+    </div>
+  `
+});
+
 module.exports = {
   welcomeEmail,
   verificationEmail,
@@ -378,5 +433,8 @@ module.exports = {
   fileSubmittedEmail,
   subtaskStartedEmail,
   subtaskCompletedEmail,
-  subtaskSubmissionEmail
+  subtaskSubmissionEmail,
+  departmentChangedEmail,
+  departmentReviewReminderEmail,
+  userDeletedEmail
 };
