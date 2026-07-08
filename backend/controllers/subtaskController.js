@@ -44,6 +44,8 @@ const extendProjectEndDateIfNeeded = async (project, subtaskDueDate) => {
 // ─── Helper: notify + email a freshly assigned group of users ────────────────
 // Also logs a single "subtask_assigned" timeline event listing everyone who
 // was newly assigned, whether this came from subtask creation or an edit.
+// Notifies every assigned employee (HR auto-CC'd per recipient) AND every
+// manager on the project, including the actor themselves if they're a manager.
 const notifyAssignedUsers = async (userIds, { project, subtask, dueDate, actor }) => {
   if (!userIds?.length) return;
 
@@ -62,8 +64,24 @@ const notifyAssignedUsers = async (userIds, { project, subtask, dueDate, actor }
   );
   await Promise.all(notifPromises);
 
-  // ── Timeline event: record who was assigned, by whom ────────────────────
+  // ── Notify every manager on the project, including the actor if they're
+  // a manager. HR already CC'd above, so ccHrAdmins is false here to avoid
+  // duplicating HR notifications ──────────────────────────────────────────
   const assignedNames = users.map((u) => u.name).join(", ");
+  const managerNotifPromises = project.assignedManagers.map((managerId) =>
+    createNotification({
+      recipient: managerId,
+      project: project._id,
+      subtask: subtask._id,
+      eventType: "subtask_assigned",
+      message: `${actor.name} assigned ${assignedNames} to subtask "${subtask.name}" in project "${project.title}".`,
+      metadata: { subtaskId: subtask._id, name: subtask.name },
+      ccHrAdmins: false,
+    })
+  );
+  await Promise.all(managerNotifPromises);
+
+  // ── Timeline event: record who was assigned, by whom ────────────────────
   await createTimelineEvent({
     project: project._id,
     subtask: subtask._id,
@@ -146,6 +164,20 @@ exports.createSubtask = async (req, res) => {
       wasReopened = true;
     }
 
+    // ── Notify every manager on the project (HR auto-CC'd inside
+    // createNotification), including the actor if they're a manager ───────────
+    const managerNotifPromises = project.assignedManagers.map((managerId) =>
+      createNotification({
+        recipient: managerId,
+        project: project._id,
+        subtask: subtask._id,
+        eventType: "subtask_created",
+        message: `${currentUser.name} added subtask "${name}" to project "${project.title}". Due ${new Date(dueDate).toDateString()}.`,
+        metadata: { subtaskId: subtask._id, name, dueDate },
+      })
+    );
+    await Promise.all(managerNotifPromises);
+
     await createTimelineEvent({
       project: project._id,
       subtask: subtask._id,
@@ -177,7 +209,7 @@ exports.createSubtask = async (req, res) => {
       });
     }
 
-    // Notify + email assigned users (also logs subtask_assigned timeline event)
+    // Notify + email assigned users and managers (also logs subtask_assigned timeline event)
     await notifyAssignedUsers(assignedTo, { project, subtask, dueDate, actor: currentUser });
 
     const populated = await Subtask.findById(subtask._id)
@@ -261,6 +293,39 @@ exports.editSubtask = async (req, res) => {
       metadata: { changes },
     });
 
+    // ── Notify currently assigned employees + all managers that the subtask
+    // was edited (HR auto-CC'd once via the employee loop; the manager loop
+    // only CCs HR if there were no assigned employees to CC through) ───────
+    if (Object.keys(changes).length > 0) {
+      const currentlyAssignedIds = subtask.assignedTo.map((id) => id.toString());
+
+      const employeeEditNotifPromises = currentlyAssignedIds.map((employeeId) =>
+        createNotification({
+          recipient: employeeId,
+          project: project._id,
+          subtask: subtask._id,
+          eventType: "subtask_edited",
+          message: `Subtask "${subtask.name}" in project "${project.title}" was updated by ${currentUser.name}.`,
+          hrMessage: `${currentUser.name} edited subtask "${subtask.name}" in project "${project.title}".`,
+          metadata: { subtaskId: subtask._id, name: subtask.name, changes },
+        })
+      );
+
+      const managerEditNotifPromises = project.assignedManagers.map((managerId) =>
+        createNotification({
+          recipient: managerId,
+          project: project._id,
+          subtask: subtask._id,
+          eventType: "subtask_edited",
+          message: `${currentUser.name} edited subtask "${subtask.name}" in project "${project.title}".`,
+          metadata: { subtaskId: subtask._id, name: subtask.name, changes },
+          ccHrAdmins: currentlyAssignedIds.length === 0,
+        })
+      );
+
+      await Promise.all([...employeeEditNotifPromises, ...managerEditNotifPromises]);
+    }
+
     if (wasExtended) {
       await createTimelineEvent({
         project: subtask.project,
@@ -272,7 +337,7 @@ exports.editSubtask = async (req, res) => {
       });
     }
 
-    // Notify + email only newly added users (also logs subtask_assigned timeline event)
+    // Notify + email only newly added users and all managers (also logs subtask_assigned timeline event)
     await notifyAssignedUsers(addedIds, { project, subtask, dueDate: subtask.dueDate, actor: currentUser });
 
     const populated = await Subtask.findById(subtask._id)
@@ -340,17 +405,17 @@ exports.deleteSubtask = async (req, res) => {
       })
     );
 
-    const managerNotifPromises = project.assignedManagers
-      .filter((managerId) => managerId.toString() !== currentUser._id.toString())
-      .map((managerId) =>
-        createNotification({
-          recipient: managerId,
-          project: project._id,
-          eventType: "subtask_deleted",
-          message: `${currentUser.name} deleted subtask "${subtask.name}" from project "${project.title}".`,
-          metadata: { subtaskName: subtask.name },
-        })
-      );
+    // ── Notify every manager on the project, including the actor if
+    // they're the manager who deleted it ───────────────────────────────────
+    const managerNotifPromises = project.assignedManagers.map((managerId) =>
+      createNotification({
+        recipient: managerId,
+        project: project._id,
+        eventType: "subtask_deleted",
+        message: `${currentUser.name} deleted subtask "${subtask.name}" from project "${project.title}".`,
+        metadata: { subtaskName: subtask.name },
+      })
+    );
 
     await Promise.all([...assignedNotifPromises, ...managerNotifPromises]);
 
