@@ -212,6 +212,14 @@ exports.completeSubtask = async (req, res) => {
       ]);
       const avg = avgRating[0]?.avg?.toFixed(1) || "N/A";
 
+      await createTimelineEvent({
+        project: project._id,
+        actor: currentUser._id,
+        eventType: "project_completed",
+        description: `Project "${project.title}" is fully complete. Average rating: ${avg}/5.`,
+        metadata: { avgRating: avg },
+      });
+
       const projectCompletePromises = recipients.map((recipient) =>
         createNotification({
           recipient: recipient._id,
