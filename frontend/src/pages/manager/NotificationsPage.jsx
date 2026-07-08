@@ -56,6 +56,12 @@ const typeColors = {
   project_created: { bg: "#ede9fe", color: "#7c3aed" },
   project_edited: { bg: "#fef3c7", color: "#b45309" },
   project_assigned: { bg: "#dbeafe", color: "#2563eb" },
+  user_deleted : { bg: "#fee2e2", color: "#b91c1c" },
+  user_dept_changed : { bg: "#e0f2fe", color: "#0284c7" },
+  project_assigned: { bg: "#dbeafe", color: "#2563eb" },
+  manager_added: { bg: "#dbeafe", color: "#2563eb" },
+  manager_removed: { bg: "#fee2e2", color: "#b91c1c" },
+  subtask_created: { bg: "#e0f2fe", color: "#0284c7" },
 };
 
 const typeIcons = {
@@ -73,6 +79,13 @@ const typeIcons = {
   project_created: "📁",
   project_edited: "✏️",
   project_assigned: "📂",
+  user_deleted : "🗑️",
+  user_role_changed : "🔄",
+  user_dept_changed : "🔄",
+  project_assigned: "📂",
+  manager_added: "➕",
+  manager_removed: "➖",
+  subtask_created: "📝",
 };
 
 const typeLabels = {
@@ -93,6 +106,10 @@ const typeLabels = {
   project_created: "Project created",
   project_edited: "Project edited",
   project_assigned: "Project assigned",
+  user_deleted : "User deleted",
+  user_dept_changed : "Department change",
+  project_assigned: "Project assigned",
+  subtask_created: "Created",
 };
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
@@ -397,16 +414,34 @@ export default function NotificationsPage() {
             onChange={(e) => setTypeFilter(e.target.value)}
           >
             <option value="all">All types</option>
-            <option value="subtask_started">Started</option>
-            <option value="subtask_submission">Submission</option>
-            <option value="subtask_completed">Completed</option>
-            <option value="comment_posted">Comments</option>
-            <option value="subtask_overdue">Overdue</option>
-            <option value="project_assigned">Project Assigned</option>
-            <option value="project_completed">Project done</option>
-            <option value="rating_submitted">Ratings</option>
-            <option value="employee_added">Employee Added</option>
-            <option value="employee_removed">Employee Removed</option>
+            <optgroup label="Subtasks">
+              <option value="subtask_created">Created</option>
+              <option value="subtask_assigned">Assigned</option>
+              <option value="subtask_started">Started</option>
+              <option value="subtask_submission">Submission</option>
+              <option value="subtask_completed">Completed</option>
+              <option value="subtask_edited">Edited</option>
+              <option value="subtask_overdue">Overdue</option>
+            </optgroup>
+            <optgroup label="Projects">
+              <option value="project_assigned">Assigned</option>
+              <option value="project_edited">Edited</option>
+              <option value="project_completed">Completed</option>
+            </optgroup>
+            <optgroup label="People">
+              <option value="employee_added">Employee added</option>
+              <option value="employee_removed">Employee removed</option>
+              <option value="manager_added">Manager added</option>
+              <option value="manager_removed">Manager removed</option>
+            </optgroup>
+            <optgroup label="Other">
+              <option value="comment_posted">Comments</option>
+              <option value="rating_submitted">Ratings</option>
+            </optgroup>
+            <optgroup label="Account">
+              <option value="user_dept_changed">Department changed</option>
+              <option value="user_deleted">User deleted</option>
+            </optgroup>
           </select>
         </div>
 
