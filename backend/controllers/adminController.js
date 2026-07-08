@@ -1,6 +1,7 @@
 const User = require('../models/User');
 const transporter = require('../config/emailConfig');
-const { welcomeEmail, roleChangedEmail } = require('../config/emailTemplates');
+const { welcomeEmail, roleChangedEmail, departmentChangedEmail, userDeletedEmail } = require('../config/emailTemplates');
+const { createNotification, createTimelineEvent } = require("../utils/notifications");
 
 // Get all pending users (not yet assigned a role)
 const getPendingUsers = async (req, res) => {
@@ -51,7 +52,12 @@ const assignRole = async (req, res) => {
     }
 
     user.role = role;
-    if (department) user.department = department;
+    if (department) {
+      user.department = department;
+      // Starts the 3-month department review clock
+      user.departmentUpdatedAt = new Date();
+      user.departmentReminderSent = { sevenDay: false, threeDay: false, oneDay: false };
+    }
     await user.save();
 
     // Send welcome email to user
@@ -82,7 +88,7 @@ const assignRole = async (req, res) => {
   }
 };
 
-// Change role of any existing user
+// Change role and/or department of any existing user
 const changeRole = async (req, res) => {
   try {
     const { userId } = req.params;
@@ -103,21 +109,84 @@ const changeRole = async (req, res) => {
     }
 
     const oldRole = user.role;
+    const oldDepartment = user.department;
+
+    const roleChanged = Boolean(role) && role !== oldRole;
+    const departmentChanged = Boolean(department) && department !== oldDepartment;
+
     user.role = role;
     if (department) user.department = department;
+
+    if (departmentChanged) {
+      user.departmentUpdatedAt = new Date();
+      user.departmentReminderSent = { sevenDay: false, threeDay: false, oneDay: false };
+    }
+
     await user.save();
 
-    // Send role changed email
-    const { subject, html } = roleChangedEmail(user.name, oldRole, role);
-    await transporter.sendMail({
-      from: `"BFSI Edge" <${process.env.EMAIL_USER}>`,
-      to: user.email,
-      subject,
-      html
-    });
+    // Send role changed email — only if role actually changed
+    if (roleChanged) {
+      const { subject, html } = roleChangedEmail(user.name, oldRole, role);
+      await transporter.sendMail({
+        from: `"BFSI Edge" <${process.env.EMAIL_USER}>`,
+        to: user.email,
+        subject,
+        html
+      });
+    }
+
+    // Send department changed email + in-app notification to employee, all managers,
+    // and all HR admins — only if department actually changed
+    if (departmentChanged) {
+      const hrAdmins = await User.find({ role: 'hr_admin' }).select('name email _id');
+      const managers = await User.find({ role: 'manager' }).select('name email _id');
+
+      const recipients = [
+        { _id: user._id, name: user.name, email: user.email },
+        ...managers.map(mgr => ({ _id: mgr._id, name: mgr.name, email: mgr.email })),
+        ...hrAdmins.map(hr => ({ _id: hr._id, name: hr.name, email: hr.email }))
+      ];
+
+      // Avoid duplicate sends if employee/manager/HR overlap (e.g. a manager also flagged as HR)
+      const seenEmails = new Set();
+      const uniqueRecipients = recipients.filter(r => {
+        if (seenEmails.has(r.email)) return false;
+        seenEmails.add(r.email);
+        return true;
+      });
+
+      for (const recipient of uniqueRecipients) {
+        const { subject, html } = departmentChangedEmail(
+          recipient.name,
+          user.name,
+          oldDepartment,
+          department,
+          req.user?.name
+        );
+
+        const isTargetUser = recipient._id.toString() === user._id.toString();
+        const message = isTargetUser
+          ? `Your department has been changed from ${oldDepartment} to ${department}`
+          : `${user.name}'s department has been changed from ${oldDepartment} to ${department}`;
+
+        await createNotification({
+          recipient: recipient._id,
+          eventType: 'user_dept_changed',
+          message,
+          sendEmail: true,
+          emailFn: () => transporter.sendMail({
+            from: `"BFSI Edge" <${process.env.EMAIL_USER}>`,
+            to: recipient.email,
+            subject,
+            html
+          }),
+          ccHrAdmins: false, // HR already included in the recipients list above
+        });
+      }
+    }
 
     res.status(200).json({
-      message: `✅ Role updated — ${user.name} changed from ${oldRole} to ${role}`,
+      message: `✅ User updated — ${user.name}${roleChanged ? ` role changed from ${oldRole} to ${role}` : ''}${departmentChanged ? `${roleChanged ? ',' : ''} department changed from ${oldDepartment} to ${department}` : ''}`,
       user: {
         id: user._id,
         name: user.name,
@@ -154,7 +223,7 @@ const getAllUsers = async (req, res) => {
   }
 };
 
-// Delete a user
+// Delete a user — notifies HR admins and managers via email + in-app notification
 const deleteUser = async (req, res) => {
   try {
     const { userId } = req.params;
@@ -166,7 +235,38 @@ const deleteUser = async (req, res) => {
       });
     }
 
+    const hrAdmins = await User.find({ role: 'hr_admin' }).select('name email _id');
+    const managers = await User.find({ role: 'manager' }).select('name email _id');
+
+    // Combine HR + managers, dedupe by _id, and exclude the user being deleted
+    // (covers the edge case where the deleted user was themselves HR/manager)
+    const seen = new Set();
+    const recipients = [...hrAdmins, ...managers].filter(r => {
+      const key = r._id.toString();
+      if (key === userId || seen.has(key)) return false;
+      seen.add(key);
+      return true;
+    });
+
     await User.findByIdAndDelete(userId);
+
+    for (const recipient of recipients) {
+      const { subject, html } = userDeletedEmail(recipient.name, user.name, user.role, req.user?.name);
+
+      await createNotification({
+        recipient: recipient._id,
+        eventType: 'user_deleted',
+        message: `${user.name} (${user.role}) has been removed from the system${req.user?.name ? ` by ${req.user.name}` : ''}`,
+        sendEmail: true,
+        emailFn: () => transporter.sendMail({
+          from: `"BFSI Edge" <${process.env.EMAIL_USER}>`,
+          to: recipient.email,
+          subject,
+          html
+        }),
+        ccHrAdmins: false, // HR admins are already included in the recipients list above
+      });
+    }
 
     res.status(200).json({
       message: `✅ User ${user.name} deleted successfully`
