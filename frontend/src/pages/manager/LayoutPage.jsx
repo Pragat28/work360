@@ -64,7 +64,7 @@ export default function ManagerLayout({ user }) {
           </div>
           <div>
             <div style={styles.logoName}>BFSI Edge</div>
-            <div style={styles.logoTagline}>HR Platform</div>
+            <div style={styles.logoTagline}>Manager Platform</div>
           </div>
         </div>
 
