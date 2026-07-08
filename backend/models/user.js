@@ -46,6 +46,12 @@ const userSchema = new mongoose.Schema({
     type: String,
     default: ''
   },
+  departmentUpdatedAt: { type: Date, default: Date.now },
+  departmentReminderSent: {
+    sevenDay: { type: Boolean, default: false },
+    threeDay: { type: Boolean, default: false },
+    oneDay: { type: Boolean, default: false }
+  },
   reportSentAt: {       // ✅ Tracks when 3-month report was sent
     type: Date,
     default: null
