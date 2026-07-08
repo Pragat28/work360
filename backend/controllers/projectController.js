@@ -268,7 +268,7 @@ exports.createProject = async (req, res) => {
           createTimelineEvent({
             project: project._id,
             actor: currentUser._id,
-            eventType: "manager_added",
+            eventType: "project_assigned",
             description: `${currentUser.name} added ${mgr.name} as manager of project "${title}"`,
             metadata: { managerId: mgr._id, managerName: mgr.name },
           })
@@ -679,7 +679,7 @@ exports.editProject = async (req, res) => {
           createTimelineEvent({
             project: project._id,
             actor: currentUser._id,
-            eventType: "manager_added",
+            eventType: "project_assigned",
             description: `${currentUser.name} added ${mgr.name} to project "${project.title}"`,
             metadata: { managerId: mgr._id, managerName: mgr.name },
           })
@@ -690,9 +690,9 @@ exports.editProject = async (req, res) => {
         createNotification({
           recipient: mgr._id,
           project: project._id,
-          eventType: "manager_added",
-          message: `You have been assigned as a manager on project "${project.title}".`,
-          hrMessage: `${currentUser.name} added ${mgr.name} as a manager on project "${project.title}".`,
+          eventType: "project_assigned",
+          message: `You have been assigned to project "${project.title}".`,
+          hrMessage: `${currentUser.name} added ${mgr.name} to project "${project.title}".`,
           metadata: { projectId: project._id, managerId: mgr._id },
         })
       );
