@@ -18,6 +18,7 @@ const eventConfig = {
   project_edited:    { icon: "✏️", bg: "#e0f2fe", color: "#0369a1", label: "Project edited" },
   project_deleted:   { icon: "🗑",  bg: "#fee2e2", color: "#b91c1c", label: "Project deleted" },
   project_completed: { icon: "🏁", bg: "#dcfce7", color: "#15803d", label: "Project completed" },
+  project_assigned:    { icon: "📂", bg: "#dbeafe", color: "#2563eb", label: "Project assigned" },
 
   subtask_created:   { icon: "📝", bg: "#fce7f3", color: "#be185d", label: "Subtask created" },
   subtask_edited:    { icon: "✏️", bg: "#e0f2fe", color: "#0369a1", label: "Subtask edited" },
@@ -233,26 +234,39 @@ export default function ManagerTimelinePage() {
           ))}
         </select>
 
-        <select
-          style={styles.select}
-          value={eventTypeFilter}
-          onChange={(e) => setEventTypeFilter(e.target.value)}
-        >
-          <option value="all">All event types</option>
-          <option value="project_created">Project created</option>
-          <option value="project_deleted">Project deleted</option>
-          <option value="subtask_started">Started</option>
-          <option value="subtask_completed">Completed</option>
-          <option value="subtask_overdue">Overdue</option>
-          <option value="subtask_edited">Subtask edits</option>
-          <option value="subtask_deleted">Subtask deleted</option>
-          <option value="subtask_submission">Submissions</option>
-          <option value="rating_submitted">Ratings</option>
-          <option value="rating_updated">Rating updates</option>
-          <option value="comment_posted">Comments</option>
-          <option value="employee_added">Employee added</option>
-          <option value="employee_removed">Employee removed</option>
-        </select>
+        <div style={styles.filterGroup}>
+          <label style={styles.filterLabel}>Event type</label>
+          <select style={styles.select} value={eventTypeFilter} onChange={(e) => setEventTypeFilter(e.target.value)}>
+            <option value="all">All event types</option>
+            <optgroup label="Subtasks">
+              <option value="subtask_created">Created</option>
+              <option value="subtask_assigned">Assigned</option>
+              <option value="subtask_started">Started</option>
+              <option value="subtask_completed">Completed</option>
+              <option value="subtask_overdue">Overdue</option>
+              <option value="subtask_edited">Edited</option>
+              <option value="subtask_deleted">Deleted</option>
+              <option value="subtask_submission">Submission</option>
+            </optgroup>
+            <optgroup label="Projects">
+              <option value="project_created">Project created</option>
+              <option value="project_edited">Project edited</option>
+              <option value="project_completed">Project completed</option>
+              <option value="project_deleted">Project deleted</option>
+            </optgroup>
+            <optgroup label="People">
+              <option value="employee_added">Employee added</option>
+              <option value="employee_removed">Employee removed</option>
+              <option value="manager_added">Manager added</option>
+              <option value="manager_removed">Manager removed</option>
+            </optgroup>
+            <optgroup label="Other">
+              <option value="rating_submitted">Rating submitted</option>
+              <option value="rating_updated">Rating updated</option>
+              <option value="comment_posted">Comment posted</option>
+            </optgroup>
+          </select>
+        </div>
 
         <span style={styles.countBadge}>{pagination.total} event{pagination.total !== 1 ? "s" : ""}</span>
       </div>
@@ -448,5 +462,15 @@ const styles = {
   loadMoreBtn: {
     padding: "9px 20px", background: "#fff", color: "#6366f1",
     border: "1px solid #e0e7ff", borderRadius: 8, fontSize: 13, fontWeight: 600, cursor: "pointer",
+  },
+  filterGroup: {
+  display: "flex",
+  alignItems: "center",
+  gap: 8,
+  },
+  filterLabel: {
+    fontSize: 13,
+    color: "#64748b",
+    whiteSpace: "nowrap",
   },
 };
