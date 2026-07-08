@@ -7,6 +7,7 @@ const cron = require("node-cron");
 const checkOverdueSubtasks = require("./jobs/overdueChecker");
 const subtaskReminder = require("./jobs/reminderCron");
 const { startTimelineReportJob } = require('./jobs/timelineReportJob');
+const departmentReviewCron = require('./jobs/deptReviewCron'); // Import the department review cron job
 
 const app = express();
 
@@ -20,6 +21,7 @@ connectDB();
 // Schedule the overdue subtask check to run every day at midnight
 cron.schedule("0 * * * *", checkOverdueSubtasks);
 cron.schedule("0 8 * * *", subtaskReminder); // Run reminder job daily at 08:00
+cron.schedule("0 9 * * *", departmentReviewCron); // Run department review reminder daily at 09:00
 startTimelineReportJob();
 
 const { subtaskRouter, submissionRouter } = require('./routes/submissionRoutes');
