@@ -115,6 +115,33 @@ exports.submitRating = async (req, res) => {
     );
     await Promise.all(notifPromises);
 
+    // ── Notify project managers too — createNotification only auto-CCs HR,
+    // not managers, so without this loop managers never hear about ratings
+    // they didn't personally submit (e.g. HR rated it, or a co-manager did).
+    const populatedProject = await Project.findById(project._id).populate("assignedManagers", "name email");
+    const managersToNotify = populatedProject.assignedManagers.filter(
+      (mgr) => mgr._id.toString() !== currentUser._id.toString()
+    );
+
+    const managerNotifPromises = managersToNotify.map((mgr) =>
+      createNotification({
+        recipient: mgr._id,
+        project: project._id,
+        subtask: subtask._id,
+        eventType: "rating_submitted",
+        message: `${currentUser.name} rated "${subtask.name}" ${stars}/5.${remark ? ` Remarks: "${remark}"` : ""}`,
+        metadata: {
+          stars,
+          remark: remark || "",
+          ratedByName: currentUser.name,
+          subtaskName: subtask.name,
+        },
+        sendEmail: false, // email is going to employees only; managers get in-app only
+        ccHrAdmins: false, // HR already covered by the employee notification loop above
+      })
+    );
+    await Promise.all(managerNotifPromises);
+
     employees.forEach((emp) => {
       const { subject, html } = ratingSubmittedEmail(
         emp.name,
@@ -230,6 +257,33 @@ exports.updateRating = async (req, res) => {
       })
     );
     await Promise.all(notifPromises);
+
+    // ── Notify project managers too — createNotification only auto-CCs HR,
+    // not managers, so without this loop managers never hear about rating
+    // updates they didn't personally make (e.g. HR updated it, or a
+    // co-manager did).
+    const populatedProject = await Project.findById(project._id).populate("assignedManagers", "name email");
+    const managersToNotify = populatedProject.assignedManagers.filter(
+      (mgr) => mgr._id.toString() !== currentUser._id.toString()
+    );
+
+    const managerNotifPromises = managersToNotify.map((mgr) =>
+      createNotification({
+        recipient: mgr._id,
+        project: project._id,
+        subtask: subtask._id,
+        eventType: "rating_submitted",
+        message: `${currentUser.name} updated the rating on "${subtask.name}" from ${previousStars}/5 to ${rating.stars}/5.`,
+        metadata: {
+          stars: rating.stars,
+          previousStars,
+          ratedByName: currentUser.name,
+        },
+        sendEmail: false, // email is going to employees only; managers get in-app only
+        ccHrAdmins: false, // HR already covered by the employee notification loop above
+      })
+    );
+    await Promise.all(managerNotifPromises);
 
     employees.forEach((emp) => {
       const { subject, html } = ratingSubmittedEmail(
