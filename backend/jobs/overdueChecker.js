@@ -51,6 +51,7 @@ const checkOverdueSubtasks = async () => {
           eventType: "subtask_overdue",
           message: `"${updated.name}" in project "${project.title}" is now overdue. No action was taken before the deadline.`,
           metadata: { subtaskName: updated.name },
+          ccHrAdmins: false
         })
       )
     );
