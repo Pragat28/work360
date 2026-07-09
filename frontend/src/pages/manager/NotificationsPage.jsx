@@ -44,7 +44,8 @@ const typeColors = {
   subtask_completed: { bg: "#dcfce7", color: "#16a34a" },
   subtask_started:   { bg: "#dbeafe", color: "#2563eb" },
   comment_posted:    { bg: "#fef9c3", color: "#ca8a04" },
-  overdue:           { bg: "#fef2f2", color: "#ef4444" },
+  subtask_overdue:           { bg: "#fef2f2", color: "#ef4444" },
+  subtask_deleted : { bg: "#fee2e2", color: "#b91c1c" },
   project_completed: { bg: "#f3e8ff", color: "#7c3aed" },
   rating_submitted:  { bg: "#fff7ed", color: "#ea580c" },
   subtask_submission: { bg: "#e0e7ff", color: "#4f46e5" },
@@ -86,13 +87,15 @@ const typeIcons = {
   manager_added: "➕",
   manager_removed: "➖",
   subtask_created: "📝",
+  project_deleted: "🗑️",
+  subtask_deleted: "🗑️",
 };
 
 const typeLabels = {
   subtask_completed: "Completed",
   subtask_started:   "Started",
   comment_posted:    "Comment",
-  overdue:           "Overdue",
+  subtask_overdue:           "Overdue",
   project_completed: "Project done",
   rating_submitted:  "Rating",
   subtask_submission: "Submission",
@@ -110,6 +113,8 @@ const typeLabels = {
   user_dept_changed : "Department change",
   project_assigned: "Project assigned",
   subtask_created: "Created",
+  project_deleted: "Project deleted",
+  subtask_deleted: "Deleted",
 };
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
@@ -422,11 +427,13 @@ export default function NotificationsPage() {
               <option value="subtask_completed">Completed</option>
               <option value="subtask_edited">Edited</option>
               <option value="subtask_overdue">Overdue</option>
+              <option value="subtask_deleted">Deleted</option>
             </optgroup>
             <optgroup label="Projects">
               <option value="project_assigned">Assigned</option>
               <option value="project_edited">Edited</option>
               <option value="project_completed">Completed</option>
+              <option value="project_deleted">Deleted</option>
             </optgroup>
             <optgroup label="People">
               <option value="employee_added">Employee added</option>
