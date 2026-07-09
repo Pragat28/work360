@@ -50,6 +50,7 @@ const notificationSchema = new mongoose.Schema(
         "password_reset",
         "user_deleted",
         "user_dept_changed",
+        "subtask_deleted",
       ],
       required: true,
     },
