@@ -1,6 +1,6 @@
 const User = require('../models/User');
 const transporter = require('../config/emailConfig');
-const { welcomeEmail, roleChangedEmail, departmentChangedEmail, userDeletedEmail } = require('../config/emailTemplates');
+const { welcomeEmail, roleChangedEmail, departmentChangedEmail, userDeletedEmail, userAddedEmail } = require('../config/emailTemplates');
 const { createNotification, createTimelineEvent } = require("../utils/notifications");
 
 // Get all pending users (not yet assigned a role)
@@ -68,6 +68,44 @@ const assignRole = async (req, res) => {
       subject,
       html
     });
+
+    // Notify all managers that a new user has been approved and added.
+    // This is the ONLY point managers hear about a new user — they were
+    // deliberately not cc'd on newUserPendingEmail at registration time.
+    try {
+      const managers = await User.find({ role: 'manager' }).select('name email _id');
+
+      // Exclude the user themself, covering the edge case where they were
+      // just assigned the manager role
+      const managerRecipients = managers.filter(
+        mgr => mgr._id.toString() !== user._id.toString()
+      );
+
+      for (const manager of managerRecipients) {
+        const { subject: mgrSubject, html: mgrHtml } = userAddedEmail(
+          manager.name,
+          user.name,
+          role,
+          req.user?.name
+        );
+
+        await createNotification({
+          recipient: manager._id,
+          eventType: 'user_added',
+          message: `${user.name} has been added as ${role}${req.user?.name ? ` by ${req.user.name}` : ''}`,
+          sendEmail: true,
+          emailFn: () => transporter.sendMail({
+            from: `"BFSI Edge" <${process.env.EMAIL_USER}>`,
+            to: manager.email,
+            subject: mgrSubject,
+            html: mgrHtml
+          }),
+          ccHrAdmins: false, // HR already knows — they approved this user
+        });
+      }
+    } catch (mgrNotifyErr) {
+      console.error('❌ Manager new-user notification FAILED:', mgrNotifyErr.message);
+    }
 
     res.status(200).json({
       message: `✅ Role assigned successfully — ${user.name} is now ${role}`,
