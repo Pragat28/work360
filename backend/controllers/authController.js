@@ -83,6 +83,9 @@ const register = async (req, res) => {
     }
 
     // ✅ Send pending notification to all HR admins
+    // Note: Managers are intentionally NOT notified at this stage.
+    // They're notified via userAddedEmail once HR approves/assigns a role
+    // (see assignRole in userController.js).
     console.log('📧 Sending HR notifications...');
     try {
       const hrAdmins = await User.find({ role: 'hr_admin' });
@@ -99,25 +102,6 @@ const register = async (req, res) => {
       }
     } catch (hrErr) {
       console.error('❌ HR email FAILED:', hrErr.message);
-    }
-
-    // ✅ Send pending notification to all managers
-    console.log('📧 Sending manager notifications...');
-    try {
-      const managers = await User.find({ role: 'manager' });
-      console.log('👥 Managers found:', managers.length);
-      for (const manager of managers) {
-        const { subject, html } = newUserPendingEmail(manager.name, name, email);
-        await transporter.sendMail({
-          from: `"BFSI Edge" <${process.env.EMAIL_USER}>`,
-          to: manager.email,
-          subject,
-          html
-        });
-        console.log('✅ Manager email sent to:', manager.email);
-      }
-    } catch (managerErr) {
-      console.error('❌ Manager email FAILED:', managerErr.message);
     }
 
     console.log('✅ Registration complete for:', email);
