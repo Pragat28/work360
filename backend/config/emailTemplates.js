@@ -413,6 +413,25 @@ const userDeletedEmail = (recipientName, deletedUserName, deletedUserRole, delet
   `
 });
 
+const userAddedEmail = (recipientName, newUserName, newUserRole, approvedByName) => ({
+  subject: `BFSI Edge — New User Added: ${newUserName}`,
+  html: `
+    <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto; padding: 20px; border: 1px solid #e0e0e0; border-radius: 8px;">
+      <h2 style="color: #15803d;">New User Added to Your Team</h2>
+      <p>Hi ${recipientName},</p>
+      <p><strong>${newUserName}</strong> has been approved and added to BFSI Edge Workflow360${approvedByName ? ` by ${approvedByName}` : ''}.</p>
+      <div style="background: #f5f5f5; padding: 15px; border-radius: 6px; margin: 20px 0;">
+        <p><strong>Name:</strong> ${newUserName}</p>
+        <p><strong>Role:</strong> ${newUserRole}</p>
+        <p><strong>Approved By:</strong> ${approvedByName || 'System'}</p>
+      </div>
+      <p>You can now assign projects, subtasks, and ratings to this user as needed.</p>
+      <a href="${process.env.FRONTEND_URL}/login" style="background: #15803d; color: white; padding: 12px 24px; border-radius: 6px; text-decoration: none;">View People Management</a>
+      <p style="color: #999; font-size: 12px; margin-top: 30px;">BFSI Edge | <a href="${process.env.FRONTEND_URL}/profile">Manage Notifications</a></p>
+    </div>
+  `
+});
+
 module.exports = {
   welcomeEmail,
   verificationEmail,
@@ -436,5 +455,6 @@ module.exports = {
   subtaskSubmissionEmail,
   departmentChangedEmail,
   departmentReviewReminderEmail,
-  userDeletedEmail
+  userDeletedEmail,
+  userAddedEmail
 };
