@@ -414,12 +414,71 @@ exports.deleteSubtask = async (req, res) => {
         eventType: "subtask_deleted",
         message: `${currentUser.name} deleted subtask "${subtask.name}" from project "${project.title}".`,
         metadata: { subtaskName: subtask.name },
+        ccHrAdmins: previouslyAssignedIds.length === 0,
       })
     );
 
     await Promise.all([...assignedNotifPromises, ...managerNotifPromises]);
 
-    return res.status(200).json({ message: "Subtask deleted" });
+    // ── Auto-complete the project if this deletion leaves every remaining
+    // (non-deleted) subtask completed. Mirrors the reopening logic in
+    // createSubtask, but in reverse — reuses "project_edited" as the
+    // eventType since that's what status transitions already use there,
+    // rather than introducing a new enum value. Skipped if the project is
+    // already completed, and skipped if there are zero subtasks left (an
+    // empty project shouldn't auto-complete). ───────────────────────────────
+    let projectAutoCompleted = false;
+    if (project.status !== "completed") {
+      const remainingSubtasks = await Subtask.find({
+        project: subtask.project,
+        isDeleted: false,
+      }).select("status");
+
+      const allRemainingCompleted =
+        remainingSubtasks.length > 0 &&
+        remainingSubtasks.every((s) => s.status === "completed");
+
+      if (allRemainingCompleted) {
+        project.status = "completed";
+        await project.save();
+        projectAutoCompleted = true;
+
+        await createTimelineEvent({
+          project: project._id,
+          subtask: subtask._id,
+          actor: currentUser._id,
+          eventType: "project_completed",
+          description: `Project "${project.title}" was marked as completed after deleting subtask "${subtask.name}" left all remaining subtasks complete`,
+          metadata: { newStatus: "completed", reason: "subtask_deletion_completed_project" },
+        });
+
+        const employeeCompletionNotifPromises = project.assignedEmployees.map((employeeId) =>
+          createNotification({
+            recipient: employeeId,
+            project: project._id,
+            eventType: "project_completed",
+            message: `Project "${project.title}" is now complete — all remaining subtasks are done.`,
+            hrMessage: `Project "${project.title}" was automatically marked complete after ${currentUser.name} deleted subtask "${subtask.name}", leaving all remaining subtasks done.`,
+            metadata: { reason: "subtask_deletion_completed_project" },
+          })
+        );
+
+        const managerCompletionNotifPromises = project.assignedManagers.map((managerId) =>
+          createNotification({
+            recipient: managerId,
+            project: project._id,
+            eventType: "project_completed",
+            message: `Project "${project.title}" is now complete — all remaining subtasks are done.`,
+            metadata: { reason: "subtask_deletion_completed_project" },
+            ccHrAdmins: project.assignedEmployees.length === 0,
+          })
+        );
+
+        await Promise.all([...employeeCompletionNotifPromises, ...managerCompletionNotifPromises]);
+      }
+    }
+
+    return res.status(200).json({ message: "Subtask deleted", projectAutoCompleted });
   } catch (err) {
     console.error("deleteSubtask error:", err);
     return res.status(500).json({ message: "Server error", error: err.message });
