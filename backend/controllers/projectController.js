@@ -791,6 +791,27 @@ exports.deleteProject = async (req, res) => {
       metadata: { title: project.title, actorId: currentUser._id },
     });
 
+    // ── Notify every other manager on the project, excluding the actor
+    // (who already got their own notification above). HR is already CC'd
+    // via the notification above, so ccHrAdmins is false here to avoid
+    // duplicate HR notifications for the same deletion ──────────────────────
+    const otherManagerIds = project.assignedManagers
+      .map((id) => id.toString())
+      .filter((id) => id !== currentUser._id.toString());
+
+    const managerNotifPromises = otherManagerIds.map((managerId) =>
+      createNotification({
+        recipient: managerId,
+        project: project._id,
+        eventType: "project_deleted",
+        message: `${currentUser.name} deleted project "${project.title}".`,
+        metadata: { title: project.title, actorId: currentUser._id },
+        ccHrAdmins: false,
+      })
+    );
+
+    await Promise.all(managerNotifPromises);
+
     return res.status(200).json({ message: "Project deleted successfully" });
   } catch (err) {
     console.error("deleteProject error:", err);
