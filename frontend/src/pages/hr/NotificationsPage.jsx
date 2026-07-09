@@ -57,6 +57,7 @@ const typeConfig = {
   subtask_completed:   { bg: "#dcfce7", color: "#16a34a", icon: "✓",  label: "Completed" },
   subtask_overdue:     { bg: "#fef2f2", color: "#ef4444", icon: "⚠️", label: "Overdue" },
   subtask_edited:        { bg: "#fef3c7", color: "#b45309", icon: "✏️", label: "Edited" },
+  subtask_deleted:       { bg: "#fee2e2", color: "#b91c1c", icon: "🗑️", label: "Deleted" },
 
   project_created:     { bg: "#ecfdf5", color: "#059669", icon: "🆕", label: "Project created" },
   project_edited:      { bg: "#f1f5f9", color: "#475569", icon: "✏️", label: "Project edited" },
@@ -411,6 +412,7 @@ export default function HRNotificationsPage() {
               <option value="subtask_overdue">Overdue</option>
               <option value="subtask_assigned">Assigned</option>
               <option value="subtask_edited">Edited</option>
+              <option value="subtask_deleted">Deleted</option>
             </optgroup>
             <optgroup label="Projects">
               <option value="project_created">Project created</option>
