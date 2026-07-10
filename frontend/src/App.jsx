@@ -19,6 +19,7 @@ import ManagerNotificationsPage from './pages/manager/NotificationsPage';
 import ManagerTimelinePage from './pages/manager/TimelinePage';
 import ProjectDetailPage from './pages/manager/ProjectDetailsPage';
 import ManagerProfilePage from './pages/manager/ProfilePage';
+import ManagerSubtaskPage from './pages/manager/SubtaskPage'
 
 
 //hr pages
@@ -31,6 +32,7 @@ import HRNotificationsPage from './pages/hr/NotificationsPage';
 import PeopleManagementPage from './pages/hr/PeopleManagementPage';
 import PendingUsersPage from './pages/hr/PendingUsersPage';
 import HRProfilePage from './pages/hr/ProfilePage';
+import HRSubtaskPage from './pages/hr/SubtaskPage'
 
 import EmployeeLayout from './pages/employee/LayoutPage';
 import EmployeeDashboard from './pages/employee/EmployeeDashboard';
@@ -78,6 +80,7 @@ function App() {
           <Route path="dashboard"     element={<ManagerDashboard />} />
           <Route path="projects"      element={<ManagerProjectsPage />} />
           <Route path="projects/:id"  element={<ProjectDetailPage />} />
+          <Route path="subtasks"      element={<ManagerSubtaskPage/>}/>
           <Route path="notifications" element={<ManagerNotificationsPage />} />
           <Route path="timeline"      element={<ManagerTimelinePage />} />
           <Route path="profile"       element={<ManagerProfilePage />} />
@@ -94,6 +97,7 @@ function App() {
           <Route path="dashboard"     element={<HRDashboard />} />
           <Route path="projects"      element={<HRProjectsPage />} />
           <Route path="projects/:id"  element={<HRProjectDetailsPage />} />
+          <Route path="subtasks"      element={<HRSubtaskPage/>}/>
           <Route path="notifications" element={<HRNotificationsPage />} />
           <Route path="timeline"      element={<HRTimelinePage />} />
           <Route path="people"        element={<PeopleManagementPage />} />
