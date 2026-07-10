@@ -7,6 +7,7 @@ const API_BASE = import.meta.env.VITE_API_URL || 'http://localhost:5000/api';
 const navItems = [
   { icon: 'home',   label: 'Dashboard',     path: '/hr/dashboard' },
   { icon: 'folder', label: 'Projects',      path: '/hr/projects' },
+  { icon : 'subtasks', label : 'Subtasks', path: '/hr/subtasks'},
   { icon: 'clock',  label: 'Timeline',      path: '/hr/timeline' },
   { icon: 'bell',   label: 'Notifications', path: '/hr/notifications' },
   { icon: 'group',  label: 'People',        path: '/hr/people' },
@@ -19,6 +20,7 @@ const icons = {
   folder: <path d="M3 7a2 2 0 0 1 2-2h4l2 2h8a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V7Z" />,
   tasks:  <><path d="M9 11l2 2 4-4" /><rect x="3" y="4" width="18" height="16" rx="2" /></>,
   clock:  <><circle cx="12" cy="12" r="9" /><path d="M12 7v5l3 3" /></>,
+  subtasks: <><path d="M9 6h10" /><path d="M9 6l3-3M9 6l3 3" /><path d="M5 12h14" /><path d="M9 18h10" /><circle cx="4" cy="12" r="1.5" fill="currentColor" stroke="none" /><circle cx="4" cy="18" r="1.5" fill="currentColor" stroke="none" /></>,
   bell:   <><path d="M6 9a6 6 0 1 1 12 0c0 3 1 4.5 1.5 5.5H4.5C5 13.5 6 12 6 9Z" /><path d="M9.5 18a2.5 2.5 0 0 0 5 0" /></>,
   user:   <><path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2" /><circle cx="12" cy="7" r="4" /></>,
   group:  <><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2" /><circle cx="9" cy="7" r="4" /><path d="M23 21v-2a4 4 0 0 0-3-3.87" /><path d="M16 3.13a4 4 0 0 1 0 7.75" /></>,
