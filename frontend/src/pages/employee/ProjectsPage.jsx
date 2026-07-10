@@ -304,7 +304,7 @@ function FilterSidebar({ visible, filterStatus, setFilterStatus, filterDueDate, 
     }}>
       {/* Header row */}
       <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
-        <span style={{ fontSize: 13, fontWeight: 700, color: '#0f172a' }}>🔽 Filters</span>
+        <span style={{ fontSize: 13, fontWeight: 700, color: '#0f172a' }}>🔽 Filters for Tasks</span>
         {hasActive && (
           <button onClick={onClear} style={{ background: 'none', border: 'none', cursor: 'pointer', fontSize: 11, fontWeight: 600, color: '#6366f1', padding: 0 }}>
             Clear all
@@ -331,9 +331,9 @@ function FilterSidebar({ visible, filterStatus, setFilterStatus, filterDueDate, 
 
       {/* Due date — custom calendar dropdown */}
       <div>
-        {label('Due Before')}
+        {label('Tasks Due Before')}
         <span style={{ fontSize: 11, color: '#64748b', display: 'block', marginBottom: 4 }}>
-          Show subtasks due on or before…
+          
         </span>
         <CalendarDatePicker value={filterDueDate} onChange={setFilterDueDate} />
       </div>
