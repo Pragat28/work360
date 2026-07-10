@@ -7,6 +7,7 @@ const API_BASE = import.meta.env.VITE_API_URL || 'http://localhost:5000/api';
 const navItems = [
   { icon: 'home',   label: 'Dashboard',     path: '/manager/dashboard' },
   { icon: 'folder', label: 'Projects',      path: '/manager/projects' },
+  { icon: 'tasks',  label: 'Subtasks',      path: '/manager/subtasks' },
   { icon: 'clock',  label: 'Timeline',      path: '/manager/timeline' },
   { icon: 'bell',   label: 'Notifications', path: '/manager/notifications' },
   { icon : 'user',  label: 'Profile',       path: '/manager/profile' }
