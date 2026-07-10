@@ -1,11 +1,12 @@
-import { useState, useEffect, useCallback } from "react";
+import { useState, useEffect, useCallback, useMemo } from "react";
 import { useNavigate } from "react-router-dom";
 import API from "../../utils/api";
 
 // ─── Constants ────────────────────────────────────────────────────────────────
 const statusColor = {
-  assigned:    { bg: "#dcfce7", color: "#16a34a", label: "Assigned" },
+  assigned:  { bg: "#dcfce7", color: "#16a34a", label: "Assigned" },
   completed: { bg: "#dbeafe", color: "#2563eb", label: "Completed" },
+  on_hold:   { bg: "#fef3c7", color: "#b45309", label: "On hold" },
 };
 
 const avatarColors = ["#6366f1", "#0ea5e9", "#10b981", "#f59e0b", "#e11d48", "#8b5cf6"];
@@ -35,7 +36,7 @@ function useUserSearch(role) {
   return { query, setQuery, results, searching };
 }
 
-// ─── User Picker (multi-select with search) ───────────────────────────────────
+// ─── User Picker (multi-select with search, used inside modals) ──────────────
 function UserPicker({ label, role, selected, onChange }) {
   const { query, setQuery, results, searching } = useUserSearch(role);
   const [open, setOpen] = useState(false);
@@ -94,6 +95,75 @@ function UserPicker({ label, role, selected, onChange }) {
           <button style={styles.pickerDone} onClick={() => { setOpen(false); setQuery(""); }}>Done</button>
         </div>
       )}
+    </div>
+  );
+}
+
+// ─── Single-select user filter (used in the sidebar) ──────────────────────────
+function UserFilterPicker({ label, role, value, onChange }) {
+  const { query, setQuery, results, searching } = useUserSearch(role);
+  const [open, setOpen] = useState(false);
+
+  function pick(user) {
+    onChange(user);
+    setOpen(false);
+    setQuery("");
+  }
+
+  return (
+    <div style={{ position: "relative" }}>
+      <div style={styles.sideLabel}>{label}</div>
+      {value ? (
+        <div style={styles.filterChipRow}>
+          <span style={styles.filterChip}>
+            {value.name}
+            <button style={styles.chipRemove} onClick={() => onChange(null)}>×</button>
+          </span>
+        </div>
+      ) : (
+        <div style={{ position: "relative" }}>
+          <input
+            style={styles.sideInput}
+            placeholder={`Search ${role}s…`}
+            value={query}
+            onChange={e => setQuery(e.target.value)}
+            onFocus={() => setOpen(true)}
+            onBlur={() => setTimeout(() => setOpen(false), 150)}
+          />
+          {open && query.trim() && (
+            <div style={styles.sideDropdown}>
+              {searching && <div style={styles.pickerHint}>Searching…</div>}
+              {!searching && results.length === 0 && (
+                <div style={styles.pickerHint}>No {role}s found</div>
+              )}
+              {results.map(u => (
+                <div key={u._id} style={styles.pickerItem} onMouseDown={() => pick(u)}>
+                  <div style={{ ...styles.pickerAvatar, background: avatarColors[u.name.charCodeAt(0) % 6], width: 24, height: 24, fontSize: 10 }}>
+                    {u.name[0]}
+                  </div>
+                  <div>
+                    <div style={{ fontSize: 12.5, fontWeight: 500, color: "#0f172a" }}>{u.name}</div>
+                    <div style={{ fontSize: 10.5, color: "#94a3b8" }}>{u.email}</div>
+                  </div>
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+      )}
+    </div>
+  );
+}
+
+// ─── Date range mini-filter ────────────────────────────────────────────────────
+function DateRangeFilter({ label, from, to, onFrom, onTo }) {
+  return (
+    <div>
+      <div style={styles.sideLabel}>{label}</div>
+      <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
+        <input type="date" style={styles.sideInput} value={from} onChange={e => onFrom(e.target.value)} />
+        <input type="date" style={styles.sideInput} value={to} onChange={e => onTo(e.target.value)} />
+      </div>
     </div>
   );
 }
@@ -320,92 +390,92 @@ function DeleteModal({ project, onClose, onDeleted }) {
   );
 }
 
-// ─── Project Card (HR variant: shows delete button) ───────────────────────────
-function ProjectCard({ project, onEdit, onView, onDelete }) {
-  const sc = statusColor[project.status] || statusColor.active;
+// ─── Project Row (record/list variant) ─────────────────────────────────────────
+function ProjectRow({ project, onEdit, onView, onDelete }) {
+  const sc = statusColor[project.status] || statusColor.assigned;
   const p = project.progress || {};
   const pct = p.percent ?? 0;
-  const allMembers = [
-    ...(project.assignedManagers || []).map(m => m.name || m),
-    ...(project.assignedEmployees || []).map(e => e.name || e),
-  ];
+  const managers = project.assignedManagers || [];
+  const employees = project.assignedEmployees || [];
+  const allMembers = [...managers.map(m => m.name || m), ...employees.map(e => e.name || e)];
   const progColor = pct === 100 ? "#22c55e" : pct > 60 ? "#6366f1" : "#f59e0b";
 
   return (
-    <div style={styles.card}>
-      {/* Title row */}
-      <div style={styles.cardTitleRow}>
-        <h3 style={styles.cardTitle}>{project.title}</h3>
-        <span style={{ ...styles.statusBadge, background: sc.bg, color: sc.color }}>{sc.label}</span>
+    <div style={styles.row}>
+      {/* Status rail */}
+      <div style={{ ...styles.rowRail, background: sc.color }} />
+
+      {/* Title / description */}
+      <div style={styles.rowMain}>
+        <div style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
+          <span style={styles.rowTitle}>{project.title}</span>
+          <span style={{ ...styles.statusBadge, background: sc.bg, color: sc.color }}>{sc.label}</span>
+        </div>
+        <div style={styles.rowDesc}>
+          {project.description || <em style={{ color: "#cbd5e1" }}>No description</em>}
+        </div>
+        {project.createdBy && (
+          <div style={{ fontSize: 11, color: "#94a3b8", marginTop: 4 }}>
+            Created by <strong style={{ color: "#64748b" }}>{project.createdBy.name || project.createdBy}</strong>
+          </div>
+        )}
       </div>
 
-      <p style={styles.cardDesc}>{project.description || <em style={{ color: "#cbd5e1" }}>No description</em>}</p>
-
-      {/* Created by */}
-      {project.createdBy && (
-        <div style={{ fontSize: 11, color: "#94a3b8", marginBottom: 10 }}>
-          Created by <strong style={{ color: "#64748b" }}>{project.createdBy.name || project.createdBy}</strong>
+      {/* Timeline */}
+      <div style={styles.rowCol}>
+        <div style={styles.rowColLabel}>Timeline</div>
+        <div style={styles.datesRow}>
+          <span style={styles.datePill}>{fmtDate(project.startDate)}</span>
+          <span style={{ fontSize: 11, color: "#94a3b8" }}>→</span>
+          <span style={styles.datePill}>{fmtDate(project.endDate)}</span>
         </div>
-      )}
+      </div>
 
       {/* Progress */}
-      <div style={{ marginBottom: 10 }}>
-        <div style={{ display: "flex", justifyContent: "space-between", marginBottom: 5 }}>
-          <span style={{ fontSize: 12, color: "#64748b" }}>Progress</span>
-          <span style={{ fontSize: 12, fontWeight: 600, color: "#0f172a" }}>{pct}%</span>
+      <div style={{ ...styles.rowCol, minWidth: 130 }}>
+        <div style={styles.rowColLabel}>Progress</div>
+        <div style={{ display: "flex", justifyContent: "space-between", marginBottom: 4 }}>
+          <span style={{ fontSize: 11, color: "#94a3b8" }}>{p.completed ?? 0}/{p.total ?? 0} subtasks</span>
+          <span style={{ fontSize: 11, fontWeight: 600, color: "#0f172a" }}>{pct}%</span>
         </div>
         <div style={styles.progressTrack}>
           <div style={{ ...styles.progressFill, width: `${pct}%`, background: progColor }} />
         </div>
-        <div style={{ fontSize: 11, color: "#94a3b8", marginTop: 4 }}>
-          {p.completed ?? 0}/{p.total ?? 0} subtasks completed
-        </div>
+        {project.avgRating != null && (
+          <div style={{ fontSize: 11, color: "#f59e0b", marginTop: 4 }}>
+            {"★".repeat(Math.round(project.avgRating))}{"☆".repeat(5 - Math.round(project.avgRating))}
+          </div>
+        )}
       </div>
-
-      {/* Dates */}
-      <div style={styles.datesRow}>
-        <span style={styles.datePill}>📅 {fmtDate(project.startDate)}</span>
-        <span style={{ fontSize: 11, color: "#94a3b8" }}>→</span>
-        <span style={styles.datePill}>{fmtDate(project.endDate)}</span>
-      </div>
-
-      {/* Avg rating */}
-      {project.avgRating != null && (
-        <div style={{ fontSize: 12, color: "#f59e0b", marginBottom: 8 }}>
-          {"★".repeat(Math.round(project.avgRating))}{"☆".repeat(5 - Math.round(project.avgRating))}
-          <span style={{ color: "#94a3b8", marginLeft: 4 }}>{project.avgRating}/5</span>
-        </div>
-      )}
 
       {/* Team */}
-      <div style={styles.teamRow}>
-        <div style={styles.avatarStack}>
-          {allMembers.slice(0, 4).map((name, i) => (
-            <div key={i} title={name} style={{
-              ...styles.miniAvatar,
-              background: avatarColors[i % avatarColors.length],
-              marginLeft: i === 0 ? 0 : -8,
-              zIndex: 10 - i,
-            }}>{(name || "?")[0]}</div>
-          ))}
-          {allMembers.length > 4 && (
-            <div style={{ ...styles.miniAvatar, background: "#e2e8f0", color: "#64748b", marginLeft: -8, zIndex: 5 }}>
-              +{allMembers.length - 4}
-            </div>
-          )}
+      <div style={styles.rowCol}>
+        <div style={styles.rowColLabel}>Team</div>
+        <div style={styles.teamRow}>
+          <div style={styles.avatarStack}>
+            {allMembers.slice(0, 4).map((name, i) => (
+              <div key={i} title={name} style={{
+                ...styles.miniAvatar,
+                background: avatarColors[i % avatarColors.length],
+                marginLeft: i === 0 ? 0 : -8,
+                zIndex: 10 - i,
+              }}>{(name || "?")[0]}</div>
+            ))}
+            {allMembers.length > 4 && (
+              <div style={{ ...styles.miniAvatar, background: "#e2e8f0", color: "#64748b", marginLeft: -8, zIndex: 5 }}>
+                +{allMembers.length - 4}
+              </div>
+            )}
+          </div>
+          <span style={styles.teamLabel}>{managers.length} mgr · {employees.length} emp</span>
         </div>
-        <span style={styles.teamLabel}>
-          {(project.assignedManagers || []).length} mgr · {(project.assignedEmployees || []).length} emp
-        </span>
       </div>
 
       {/* Actions */}
-      <div style={styles.cardActions}>
+      <div style={styles.rowActions}>
         <button onClick={() => onView(project)} style={styles.viewBtn}>View →</button>
-        <div style={{ display: "flex", gap: 6 }}>
-          <button onClick={() => onEdit(project)} style={styles.editBtn}>✏️ Edit</button>
-          <button onClick={() => onDelete(project)} style={styles.deleteBtn}>🗑</button>
-        </div>
+        <button onClick={() => onEdit(project)} style={styles.editBtn}>✏️ Edit</button>
+        <button onClick={() => onDelete(project)} style={styles.deleteBtn}>🗑</button>
       </div>
     </div>
   );
@@ -418,23 +488,35 @@ export default function HRProjectsPage() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
   const [search, setSearch] = useState("");
-  const [statusFilter, setStatusFilter] = useState("all");
   const [showCreate, setShowCreate] = useState(false);
   const [editProject, setEditProject] = useState(null);
   const [deleteProject, setDeleteProject] = useState(null);
+
+  // ── Sidebar filter state ──
+  const [statusFilter, setStatusFilter] = useState("all");
+  const [managerFilter, setManagerFilter] = useState(null);
+  const [employeeFilter, setEmployeeFilter] = useState(null);
+  const [startFrom, setStartFrom] = useState("");
+  const [startTo, setStartTo] = useState("");
+  const [dueFrom, setDueFrom] = useState("");
+  const [dueTo, setDueTo] = useState("");
+  const [filtersOpen, setFiltersOpen] = useState(true);
+
+  // ── Pagination ──
+  const PAGE_SIZE = 8;
+  const [page, setPage] = useState(1);
 
   const load = useCallback(async () => {
     setLoading(true); setError("");
     try {
       const params = {};
-      if (statusFilter !== "all") params.status = statusFilter;
       if (search) params.search = search;
       const { data } = await API.get("/projects", { params });
       setProjects(data.projects || []);
     } catch (e) {
       setError(e.response?.data?.message || e.message);
     } finally { setLoading(false); }
-  }, [statusFilter, search]);
+  }, [search]);
 
   useEffect(() => { load(); }, [load]);
 
@@ -451,55 +533,85 @@ export default function HRProjectsPage() {
     setDeleteProject(null);
   }
 
+  function clearFilters() {
+    setStatusFilter("all");
+    setManagerFilter(null);
+    setEmployeeFilter(null);
+    setStartFrom(""); setStartTo("");
+    setDueFrom(""); setDueTo("");
+  }
+
+  const activeFilterCount = [
+    statusFilter !== "all",
+    !!managerFilter,
+    !!employeeFilter,
+    !!startFrom, !!startTo, !!dueFrom, !!dueTo,
+  ].filter(Boolean).length;
+
+  const filteredProjects = useMemo(() => {
+    return projects.filter(p => {
+      if (statusFilter !== "all" && p.status !== statusFilter) return false;
+
+      if (managerFilter) {
+        const ids = (p.assignedManagers || []).map(m => (typeof m === "object" ? m._id : m));
+        if (!ids.includes(managerFilter._id)) return false;
+      }
+      if (employeeFilter) {
+        const ids = (p.assignedEmployees || []).map(e => (typeof e === "object" ? e._id : e));
+        if (!ids.includes(employeeFilter._id)) return false;
+      }
+
+      if (startFrom && p.startDate && p.startDate.slice(0, 10) < startFrom) return false;
+      if (startTo && p.startDate && p.startDate.slice(0, 10) > startTo) return false;
+      if (dueFrom && p.endDate && p.endDate.slice(0, 10) < dueFrom) return false;
+      if (dueTo && p.endDate && p.endDate.slice(0, 10) > dueTo) return false;
+
+      return true;
+    });
+  }, [projects, statusFilter, managerFilter, employeeFilter, startFrom, startTo, dueFrom, dueTo]);
+
+  const totalPages = Math.max(1, Math.ceil(filteredProjects.length / PAGE_SIZE));
+
+  useEffect(() => {
+    setPage(1);
+  }, [statusFilter, managerFilter, employeeFilter, startFrom, startTo, dueFrom, dueTo, search]);
+
+  useEffect(() => {
+    if (page > totalPages) setPage(totalPages);
+  }, [totalPages, page]);
+
+  const pagedProjects = useMemo(() => {
+    const start = (page - 1) * PAGE_SIZE;
+    return filteredProjects.slice(start, start + PAGE_SIZE);
+  }, [filteredProjects, page]);
+
   const counts = {
-    active:    projects.filter(p => p.status === "assigned").length,
+    assigned:  projects.filter(p => p.status === "assigned").length,
     completed: projects.filter(p => p.status === "completed").length,
   };
 
   return (
     <div style={styles.page}>
+      {/* ── Main content ── */}
       <main style={styles.main}>
-
-        {/* ── Header ── */}
         <div style={styles.header}>
           <div>
             <div style={styles.hrBadge}>HR Admin</div>
             <h1 style={styles.pageTitle}>All Projects</h1>
             <p style={styles.pageSub}>
-              {projects.length} project{projects.length !== 1 ? "s" : ""} across the organisation
+              {filteredProjects.length} of {projects.length} project{projects.length !== 1 ? "s" : ""} match your filters
             </p>
           </div>
           <button onClick={() => setShowCreate(true)} style={styles.createBtn}>+ New project</button>
         </div>
 
-        {/* ── Summary strip ── */}
-        <div style={styles.summaryStrip}>
-          {[
-            { label: "Active", count: counts.active, color: "#16a34a", bg: "#dcfce7" },
-            { label: "Completed", count: counts.completed, color: "#2563eb", bg: "#dbeafe" },
-          ].map(({ label, count, color, bg }) => (
-            <div key={label} style={{ ...styles.summaryCard, borderColor: bg }}>
-              <div style={{ fontSize: 22, fontWeight: 700, color }}>{count}</div>
-              <div style={{ fontSize: 12, color: "#64748b" }}>{label}</div>
-            </div>
-          ))}
-        </div>
+        <input
+          style={styles.searchInput}
+          placeholder="Search by title…"
+          value={search}
+          onChange={e => setSearch(e.target.value)}
+        />
 
-        {/* ── Filters ── */}
-        <div style={styles.filters}>
-          <input style={styles.searchInput} placeholder="Search by title…"
-            value={search} onChange={e => setSearch(e.target.value)} />
-          <div style={styles.filterTabs}>
-            {["all", "assigned", "completed"].map(s => (
-              <button key={s} onClick={() => setStatusFilter(s)}
-                style={{ ...styles.filterTab, ...(statusFilter === s ? styles.filterTabActive : {}) }}>
-                {s === "all" ? "All" : s === "on_hold" ? "On hold" : (statusColor[s]?.label ?? s)}
-              </button>
-            ))}
-          </div>
-        </div>
-
-        {/* ── Content ── */}
         {loading ? (
           <div style={{ display: "flex", justifyContent: "center", padding: 60 }}>
             <div style={styles.spinner} />
@@ -510,9 +622,9 @@ export default function HRProjectsPage() {
             <button onClick={load} style={styles.createBtn}>Retry</button>
           </div>
         ) : (
-          <div style={styles.grid}>
-            {projects.map(project => (
-              <ProjectCard
+          <div style={styles.list}>
+            {pagedProjects.map(project => (
+              <ProjectRow
                 key={project._id}
                 project={project}
                 onView={p => navigate(`/hr/projects/${p._id}`)}
@@ -520,17 +632,121 @@ export default function HRProjectsPage() {
                 onDelete={setDeleteProject}
               />
             ))}
-            {projects.length === 0 && (
+            {filteredProjects.length === 0 && (
               <div style={styles.empty}>
                 <div style={{ fontSize: 36 }}>📁</div>
                 <div style={{ fontSize: 14, color: "#64748b", marginTop: 8 }}>
-                  {search ? "No projects match your search." : "No projects yet. Create one to get started."}
+                  {projects.length === 0
+                    ? "No projects yet. Create one to get started."
+                    : "No projects match the current filters."}
+                </div>
+                {activeFilterCount > 0 && projects.length > 0 && (
+                  <button onClick={clearFilters} style={{ ...styles.createBtn, marginTop: 12 }}>Clear filters</button>
+                )}
+              </div>
+            )}
+
+            {filteredProjects.length > 0 && totalPages > 1 && (
+              <div style={styles.paginator}>
+                <span style={styles.paginatorInfo}>
+                  Showing {(page - 1) * PAGE_SIZE + 1}–{Math.min(page * PAGE_SIZE, filteredProjects.length)} of {filteredProjects.length}
+                </span>
+                <div style={styles.paginatorControls}>
+                  <button
+                    onClick={() => setPage(p => Math.max(1, p - 1))}
+                    disabled={page === 1}
+                    style={{ ...styles.pageBtn, ...(page === 1 ? styles.pageBtnDisabled : {}) }}
+                  >
+                    ‹ Prev
+                  </button>
+                  {Array.from({ length: totalPages }, (_, i) => i + 1)
+                    .filter(n => n === 1 || n === totalPages || Math.abs(n - page) <= 1)
+                    .reduce((acc, n, i, arr) => {
+                      if (i > 0 && n - arr[i - 1] > 1) acc.push("…");
+                      acc.push(n);
+                      return acc;
+                    }, [])
+                    .map((n, i) =>
+                      n === "…" ? (
+                        <span key={`gap-${i}`} style={styles.pageEllipsis}>…</span>
+                      ) : (
+                        <button
+                          key={n}
+                          onClick={() => setPage(n)}
+                          style={{ ...styles.pageBtn, ...(n === page ? styles.pageBtnActive : {}) }}
+                        >
+                          {n}
+                        </button>
+                      )
+                    )}
+                  <button
+                    onClick={() => setPage(p => Math.min(totalPages, p + 1))}
+                    disabled={page === totalPages}
+                    style={{ ...styles.pageBtn, ...(page === totalPages ? styles.pageBtnDisabled : {}) }}
+                  >
+                    Next ›
+                  </button>
                 </div>
               </div>
             )}
           </div>
         )}
       </main>
+
+      {/* ── Filters sidebar (right side, retractable) ── */}
+      {filtersOpen ? (
+        <aside style={styles.sidebar}>
+          <div style={styles.sidebarHeader}>
+            <span style={styles.sidebarTitle}>Filters</span>
+            <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+              {activeFilterCount > 0 && (
+                <button onClick={clearFilters} style={styles.clearBtn}>Clear ({activeFilterCount})</button>
+              )}
+              <button onClick={() => setFiltersOpen(false)} style={styles.collapseBtn} title="Hide filters">›</button>
+            </div>
+          </div>
+
+          <div style={styles.sideSection}>
+            <div style={styles.sideLabel}>Status</div>
+            <div style={{ display: "flex", flexDirection: "column", gap: 4 }}>
+              {["all", "assigned", "completed", "on_hold"].map(s => (
+                <button
+                  key={s}
+                  onClick={() => setStatusFilter(s)}
+                  style={{ ...styles.statusOption, ...(statusFilter === s ? styles.statusOptionActive : {}) }}
+                >
+                  <span>{s === "all" ? "All statuses" : statusColor[s]?.label ?? s}</span>
+                  <span style={{ color: "#94a3b8", fontSize: 11 }}>
+                    {s === "all" ? projects.length : counts[s] ?? 0}
+                  </span>
+                </button>
+              ))}
+            </div>
+          </div>
+
+          <div style={styles.sideSection}>
+            <UserFilterPicker label="Project manager" role="manager" value={managerFilter} onChange={setManagerFilter} />
+          </div>
+
+          <div style={styles.sideSection}>
+            <UserFilterPicker label="Employee" role="employee" value={employeeFilter} onChange={setEmployeeFilter} />
+          </div>
+
+          <div style={styles.sideSection}>
+            <DateRangeFilter label="Start date between" from={startFrom} to={startTo} onFrom={setStartFrom} onTo={setStartTo} />
+          </div>
+
+          <div style={styles.sideSection}>
+            <DateRangeFilter label="Due date between" from={dueFrom} to={dueTo} onFrom={setDueFrom} onTo={setDueTo} />
+          </div>
+        </aside>
+      ) : (
+        <button onClick={() => setFiltersOpen(true)} style={styles.expandBtn} title="Show filters">
+          <span style={{ fontSize: 14 }}>‹</span>
+          <span style={styles.expandBtnLabel}>Filters</span>
+          {activeFilterCount > 0 && <span style={styles.expandBadge}>{activeFilterCount}</span>}
+        </button>
+      )}
 
       {showCreate && (
         <CreateProjectModal onClose={() => setShowCreate(false)} onCreate={handleCreated} />
@@ -548,41 +764,67 @@ export default function HRProjectsPage() {
 // ─── Styles ───────────────────────────────────────────────────────────────────
 const styles = {
   page: { display: "flex", minHeight: "100vh", fontFamily: "'DM Sans', sans-serif", background: "#f8fafc" },
-  main: { flex: 1, padding: "32px 36px", display: "flex", flexDirection: "column", gap: 20 },
 
+  // Sidebar
+  sidebar: { width: 260, flexShrink: 0, background: "#fff", borderLeft: "1px solid #f1f5f9", padding: "24px 18px", display: "flex", flexDirection: "column", gap: 20, position: "sticky", top: 0, height: "100vh", overflowY: "auto" },
+  sidebarHeader: { display: "flex", alignItems: "center", justifyContent: "space-between" },
+  sidebarTitle: { fontSize: 15, fontWeight: 700, color: "#0f172a" },
+  clearBtn: { fontSize: 11, fontWeight: 600, color: "#6366f1", background: "none", border: "none", cursor: "pointer", padding: 0 },
+  collapseBtn: { width: 24, height: 24, display: "flex", alignItems: "center", justifyContent: "center", border: "1px solid #e2e8f0", background: "#f8fafc", borderRadius: 6, cursor: "pointer", fontSize: 14, color: "#64748b", lineHeight: 1, flexShrink: 0 },
+  expandBtn: { flexShrink: 0, width: 40, alignSelf: "flex-start", position: "sticky", top: 24, display: "flex", flexDirection: "column", alignItems: "center", gap: 6, background: "#fff", border: "1px solid #f1f5f9", borderRadius: 10, padding: "12px 0", cursor: "pointer", marginTop: 32 },
+  expandBtnLabel: { fontSize: 11, fontWeight: 600, color: "#64748b", writingMode: "vertical-rl", textOrientation: "mixed" },
+  expandBadge: { fontSize: 10, fontWeight: 700, color: "#fff", background: "#6366f1", borderRadius: "50%", width: 16, height: 16, display: "flex", alignItems: "center", justifyContent: "center" },
+  sideSection: { borderTop: "1px solid #f1f5f9", paddingTop: 16 },
+  sideLabel: { fontSize: 12, fontWeight: 600, color: "#374151", marginBottom: 8 },
+  sideInput: { width: "100%", padding: "7px 10px", border: "1px solid #e2e8f0", borderRadius: 7, fontSize: 12.5, outline: "none", boxSizing: "border-box", fontFamily: "inherit", background: "#fff" },
+  sideDropdown: { position: "absolute", zIndex: 200, top: "100%", left: 0, right: 0, background: "#fff", border: "1px solid #e2e8f0", borderRadius: 8, boxShadow: "0 8px 24px rgba(0,0,0,0.1)", marginTop: 4, maxHeight: 220, overflowY: "auto" },
+  statusOption: { display: "flex", justifyContent: "space-between", alignItems: "center", padding: "7px 10px", borderRadius: 7, border: "1px solid transparent", background: "transparent", cursor: "pointer", fontSize: 13, color: "#374151", textAlign: "left" },
+  statusOptionActive: { background: "#eef2ff", borderColor: "#c7d2fe", color: "#4338ca", fontWeight: 600 },
+  filterChipRow: { display: "flex", flexWrap: "wrap", gap: 6 },
+  filterChip: { display: "flex", alignItems: "center", gap: 4, background: "#eef2ff", color: "#4338ca", fontSize: 12, fontWeight: 500, borderRadius: 20, padding: "3px 8px" },
+
+  // Main
+  main: { flex: 1, padding: "32px 36px", display: "flex", flexDirection: "column", gap: 20, minWidth: 0 },
   header: { display: "flex", alignItems: "flex-start", justifyContent: "space-between", flexWrap: "wrap", gap: 12 },
   hrBadge: { display: "inline-block", fontSize: 11, fontWeight: 600, color: "#7c3aed", background: "#ede9fe", borderRadius: 20, padding: "2px 10px", marginBottom: 6, letterSpacing: "0.3px" },
   pageTitle: { fontSize: 26, fontWeight: 700, color: "#0f172a", margin: 0, letterSpacing: "-0.5px" },
   pageSub: { fontSize: 14, color: "#64748b", margin: "4px 0 0" },
   createBtn: { padding: "9px 18px", background: "#6366f1", color: "#fff", border: "none", borderRadius: 8, fontSize: 13, fontWeight: 600, cursor: "pointer" },
 
-  summaryStrip: { display: "flex", gap: 12 },
-  summaryCard: { flex: 1, background: "#fff", border: "2px solid #f1f5f9", borderRadius: 10, padding: "12px 16px", textAlign: "center" },
+  searchInput: { padding: "9px 14px", border: "1px solid #e2e8f0", borderRadius: 8, fontSize: 14, background: "#fff", width: 320, outline: "none" },
 
-  filters: { display: "flex", gap: 12, alignItems: "center", flexWrap: "wrap" },
-  searchInput: { padding: "9px 14px", border: "1px solid #e2e8f0", borderRadius: 8, fontSize: 14, background: "#fff", width: 260, outline: "none" },
-  filterTabs: { display: "flex", gap: 4, background: "#fff", border: "1px solid #e2e8f0", borderRadius: 8, padding: 4 },
-  filterTab: { padding: "5px 14px", borderRadius: 6, border: "none", background: "transparent", cursor: "pointer", fontSize: 13, color: "#64748b" },
-  filterTabActive: { background: "#6366f1", color: "#fff" },
+  // List / record rows
+  list: { display: "flex", flexDirection: "column", gap: 10 },
+  empty: { background: "#fff", border: "1px solid #f1f5f9", borderRadius: 12, padding: 40, textAlign: "center" },
 
-  grid: { display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(320px, 1fr))", gap: 18 },
-  empty: { background: "#fff", border: "1px solid #f1f5f9", borderRadius: 12, padding: 40, textAlign: "center", gridColumn: "1 / -1" },
+  paginator: { display: "flex", alignItems: "center", justifyContent: "space-between", flexWrap: "wrap", gap: 10, marginTop: 6, padding: "10px 4px" },
+  paginatorInfo: { fontSize: 12.5, color: "#94a3b8" },
+  paginatorControls: { display: "flex", alignItems: "center", gap: 4 },
+  pageBtn: { minWidth: 30, height: 30, padding: "0 8px", display: "flex", alignItems: "center", justifyContent: "center", border: "1px solid #e2e8f0", background: "#fff", borderRadius: 7, fontSize: 12.5, color: "#374151", cursor: "pointer" },
+  pageBtnActive: { background: "#6366f1", borderColor: "#6366f1", color: "#fff", fontWeight: 600 },
+  pageBtnDisabled: { opacity: 0.4, cursor: "not-allowed" },
+  pageEllipsis: { padding: "0 4px", fontSize: 12.5, color: "#94a3b8" },
 
-  card: { background: "#fff", border: "1px solid #f1f5f9", borderRadius: 14, padding: "20px 20px 16px", display: "flex", flexDirection: "column" },
-  cardTitleRow: { display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 6 },
-  cardTitle: { fontSize: 16, fontWeight: 600, color: "#0f172a", margin: 0 },
+  row: { display: "flex", flexWrap: "wrap", alignItems: "center", gap: 16, background: "#fff", border: "1px solid #f1f5f9", borderRadius: 12, padding: "14px 18px", position: "relative" },
+  rowRail: { position: "absolute", left: 0, top: 0, bottom: 0, width: 4, borderRadius: "12px 0 0 12px" },
+  rowMain: { flex: "1 1 220px", minWidth: 160, paddingLeft: 8 },
+  rowTitle: { fontSize: 15, fontWeight: 600, color: "#0f172a" },
+  rowDesc: { fontSize: 12.5, color: "#64748b", lineHeight: 1.5, marginTop: 3, maxWidth: 380, overflow: "hidden", textOverflow: "ellipsis", display: "-webkit-box", WebkitLineClamp: 2, WebkitBoxOrient: "vertical" },
+  rowCol: { flex: "0 0 auto", minWidth: 140, display: "flex", flexDirection: "column", justifyContent: "center" },
+  rowColLabel: { fontSize: 10.5, fontWeight: 600, color: "#94a3b8", textTransform: "uppercase", letterSpacing: "0.4px", marginBottom: 5 },
+  rowActions: { flex: "0 0 auto", display: "flex", alignItems: "center", gap: 6, marginLeft: "auto" },
+
   statusBadge: { fontSize: 11, fontWeight: 600, padding: "3px 10px", borderRadius: 20, flexShrink: 0 },
-  cardDesc: { fontSize: 13, color: "#64748b", lineHeight: 1.6, margin: "0 0 6px" },
-  progressTrack: { height: 6, background: "#f1f5f9", borderRadius: 4, overflow: "hidden" },
+  progressTrack: { height: 6, background: "#f1f5f9", borderRadius: 4, overflow: "hidden", width: 130 },
   progressFill: { height: "100%", borderRadius: 4, transition: "width 0.5s ease" },
-  datesRow: { display: "flex", alignItems: "center", gap: 6, margin: "6px 0 10px" },
-  datePill: { fontSize: 11, color: "#64748b", background: "#f8fafc", border: "1px solid #e2e8f0", borderRadius: 6, padding: "3px 8px" },
-  teamRow: { display: "flex", alignItems: "center", gap: 10, marginBottom: 14 },
+  datesRow: { display: "flex", alignItems: "center", gap: 6 },
+  datePill: { fontSize: 11, color: "#64748b", background: "#f8fafc", border: "1px solid #e2e8f0", borderRadius: 6, padding: "3px 8px", whiteSpace: "nowrap" },
+  teamRow: { display: "flex", alignItems: "center", gap: 8 },
   avatarStack: { display: "flex", alignItems: "center" },
-  miniAvatar: { width: 26, height: 26, borderRadius: "50%", display: "flex", alignItems: "center", justifyContent: "center", fontSize: 10, fontWeight: 700, color: "#fff", border: "2px solid #fff" },
-  teamLabel: { fontSize: 12, color: "#94a3b8" },
-  cardActions: { display: "flex", justifyContent: "space-between", alignItems: "center", borderTop: "1px solid #f1f5f9", paddingTop: 12, marginTop: "auto" },
-  viewBtn: { fontSize: 13, fontWeight: 600, color: "#6366f1", background: "none", border: "none", cursor: "pointer", padding: 0 },
+  miniAvatar: { width: 24, height: 24, borderRadius: "50%", display: "flex", alignItems: "center", justifyContent: "center", fontSize: 9.5, fontWeight: 700, color: "#fff", border: "2px solid #fff" },
+  teamLabel: { fontSize: 11, color: "#94a3b8", whiteSpace: "nowrap" },
+
+  viewBtn: { fontSize: 12.5, fontWeight: 600, color: "#6366f1", background: "none", border: "none", cursor: "pointer", padding: "6px 4px" },
   editBtn: { fontSize: 12, fontWeight: 500, color: "#64748b", background: "#f8fafc", border: "1px solid #e2e8f0", borderRadius: 7, padding: "5px 12px", cursor: "pointer" },
   deleteBtn: { fontSize: 12, fontWeight: 500, color: "#dc2626", background: "#fef2f2", border: "1px solid #fca5a5", borderRadius: 7, padding: "5px 10px", cursor: "pointer" },
 
@@ -603,7 +845,7 @@ const styles = {
   cancelBtn: { padding: "9px 18px", background: "#f8fafc", color: "#374151", border: "1px solid #e2e8f0", borderRadius: 8, fontSize: 13, cursor: "pointer" },
   submitBtn: { padding: "9px 18px", background: "#6366f1", color: "#fff", border: "none", borderRadius: 8, fontSize: 13, fontWeight: 600, cursor: "pointer" },
 
-  // User picker
+  // User picker (modals)
   pickerBox: { minHeight: 42, padding: "6px 10px", border: "1px solid #e2e8f0", borderRadius: 8, display: "flex", flexWrap: "wrap", gap: 6, cursor: "pointer", background: "#fff", alignItems: "center" },
   pickerChip: { display: "flex", alignItems: "center", gap: 4, background: "#eef2ff", color: "#4338ca", fontSize: 12, fontWeight: 500, borderRadius: 20, padding: "2px 8px" },
   chipRemove: { background: "none", border: "none", cursor: "pointer", fontSize: 14, color: "#6366f1", padding: 0, lineHeight: 1 },
