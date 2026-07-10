@@ -262,11 +262,11 @@ export default function HRAdminDashboard() {
                 {overdueCount} subtask{overdueCount !== 1 ? "s are" : " is"} overdue org-wide
               </div>
               <div style={styles.overdueBannerSub}>
-                Check the Timeline page and use the "Overdue" filter to see exactly what's late.
+                Check the Subtasks page to see which ones need attention.
               </div>
             </div>
           </div>
-          <button onClick={() => navigate('/hr/timeline')} style={styles.overdueBannerBtn}>
+          <button onClick={() => navigate('/hr/subtasks')} style={styles.overdueBannerBtn}>
             View overdue tasks →
           </button>
         </div>
