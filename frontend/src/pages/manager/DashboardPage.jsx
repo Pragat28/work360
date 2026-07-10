@@ -221,11 +221,11 @@ export default function ManagerDashboard() {
                 {overdueCount} subtask{overdueCount !== 1 ? "s are" : " is"} overdue
               </div>
               <div style={styles.overdueBannerSub}>
-                Check the Timeline page and use the "Overdue" filter to see exactly what's late.
+                Check the Subtask page to see which ones need attention.
               </div>
             </div>
           </div>
-          <button onClick={() => navigate('/manager/timeline')} style={styles.overdueBannerBtn}>
+          <button onClick={() => navigate('/manager/subtasks')} style={styles.overdueBannerBtn}>
             View overdue tasks →
           </button>
         </div>
