@@ -51,6 +51,7 @@ const notificationSchema = new mongoose.Schema(
         "user_deleted",
         "user_dept_changed",
         "subtask_deleted",
+        "user_added"
       ],
       required: true,
     },
