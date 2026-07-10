@@ -525,15 +525,16 @@ exports.searchAssignableUsers = async (req, res) => {
   }
 };
 
-// =============================================================================
-// @desc    List subtasks, optionally filtered by status (e.g. "overdue").
+//// =============================================================================
+// @desc    List subtasks, optionally filtered by status (e.g. "overdue"),
+//          project, employee, manager (HR only), and due-date range.
 //          For "overdue" specifically: also catches subtasks whose dueDate
 //          has passed and aren't completed yet, even if the cron hasn't
 //          flipped their stored status to "overdue" yet — same live-fallback
 //          idea used in timelineController's getTimelineStats.
 //          Scoped by role — employee sees only their own assigned subtasks,
 //          manager sees subtasks on projects they manage, hr_admin sees all.
-// @route   GET /api/subtasks?status=overdue&projectId=<id|omit>
+// @route   GET /api/subtasks?status=overdue&projectId=<id|omit>&employeeId=<id|omit>&managerId=<id|omit>&startDate=<iso>&endDate=<iso>
 // @access  All roles
 // =============================================================================
 
@@ -542,21 +543,26 @@ exports.getSubtasks = async (req, res) => {
     const currentUser = await getFullUser(req.user);
     if (!currentUser) return res.status(401).json({ message: "User not found" });
 
-    const { status, projectId } = req.query;
+    const { status, projectId, employeeId, managerId, startDate, endDate } = req.query;
     const filter = { isDeleted: false };
+    const andConditions = [];
 
     // ── Status filter — "overdue" gets the live-fallback OR condition,
     //    everything else filters normally on the stored field ─────────────
     if (status === "overdue") {
-      filter.$or = [
-        { status: "overdue" },
-        { status: { $nin: ["completed", "overdue"] }, dueDate: { $lt: new Date() } },
-      ];
+      andConditions.push({
+        $or: [
+          { status: "overdue" },
+          { status: { $nin: ["completed", "overdue"] }, dueDate: { $lt: new Date() } },
+        ],
+      });
     } else if (status) {
       filter.status = status;
     }
 
     // ── Role scoping ───────────────────────────────────────────────────────
+    let allowedProjectIds = null; // null = unrestricted (hr_admin default)
+
     if (currentUser.role === "employee") {
       filter.assignedTo = currentUser._id;
     } else if (currentUser.role === "manager") {
@@ -564,19 +570,48 @@ exports.getSubtasks = async (req, res) => {
         assignedManagers: currentUser._id,
         isDeleted: false,
       }).select("_id");
-      filter.project = { $in: managedProjects.map((p) => p._id) };
+      allowedProjectIds = managedProjects.map((p) => p._id.toString());
     }
-    // hr_admin: no restriction — sees all
+    // hr_admin: no restriction
+
+    // ── HR-only: narrow to a specific manager's projects ──────────────────
+    if (currentUser.role === "hr_admin" && managerId) {
+      const managerProjects = await Project.find({
+        assignedManagers: managerId,
+        isDeleted: false,
+      }).select("_id");
+      const managerProjectIds = managerProjects.map((p) => p._id.toString());
+      allowedProjectIds = allowedProjectIds
+        ? allowedProjectIds.filter((id) => managerProjectIds.includes(id))
+        : managerProjectIds;
+    }
 
     // ── Optional single-project narrowing (validated against scope) ───────
     if (projectId && projectId !== "all") {
-      if (currentUser.role === "manager") {
-        const allowedIds = (filter.project?.$in || []).map((id) => id.toString());
-        if (!allowedIds.includes(projectId)) {
-          return res.status(403).json({ message: "Access to this project is not allowed" });
-        }
+      if (allowedProjectIds && !allowedProjectIds.includes(projectId)) {
+        return res.status(403).json({ message: "Access to this project is not allowed" });
       }
       filter.project = projectId;
+    } else if (allowedProjectIds) {
+      filter.project = { $in: allowedProjectIds };
+    }
+
+    // ── Employee filter — managers/HR only; employees are already
+    //    self-scoped above, so this would be a no-op (or a leak) for them ──
+    if (employeeId && employeeId !== "all" && currentUser.role !== "employee") {
+      filter.assignedTo = employeeId;
+    }
+
+    // ── Due date range ("subtasks due in this window") ─────────────────────
+    if (startDate || endDate) {
+      const dueDateRange = {};
+      if (startDate) dueDateRange.$gte = new Date(startDate);
+      if (endDate) dueDateRange.$lte = new Date(endDate);
+      andConditions.push({ dueDate: dueDateRange });
+    }
+
+    if (andConditions.length) {
+      filter.$and = andConditions;
     }
 
     const subtasks = await Subtask.find(filter)
